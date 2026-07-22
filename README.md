@@ -86,9 +86,32 @@ Open the local dashboard with `external-agents ui` and you'll get a page like:
 
 Once installed, add one block to your MCP client config.
 
-The package ships a dedicated `external-agents-mcp` binary — the MCP server entry — so client configs are plain command lines with no args.
+The package ships a dedicated `external-agents-mcp` binary — the MCP server entry — so client configs are plain command lines with no args. **Both Claude Code and Codex expose a one-liner** for this; you should never have to hand-edit config files unless you want to.
 
-**Claude Code** (`~/.claude.json`):
+### Claude Code
+
+```bash
+claude mcp add external-agents external-agents-mcp
+```
+
+(Uses the native `claude mcp add <name> <command>` — the CLI writes the block into `~/.claude.json` for you and Claude Code picks it up on next start.)
+
+### Codex
+
+```bash
+codex mcp add external-agents -- external-agents-mcp
+```
+
+(Uses the native `codex mcp add <name> -- <command>` — the CLI writes `[mcp_servers.external-agents]` into `~/.codex/config.toml`.)
+
+### Cursor
+
+Settings → MCP → Add server → command `external-agents-mcp`, no args.
+
+### Manual (any other client)
+
+If your MCP client doesn't have a one-liner, the config block is:
+
 ```json
 {
   "mcpServers": {
@@ -100,14 +123,15 @@ The package ships a dedicated `external-agents-mcp` binary — the MCP server en
 }
 ```
 
-**Codex Code** (`~/.codex/config.toml`):
+or TOML equivalent:
+
 ```toml
 [mcp_servers.external-agents]
 command = "external-agents-mcp"
 args = []
 ```
 
-**Cursor** — Settings → MCP → Add server → command `external-agents-mcp`, no args.
+No publishing step — the MCP server is just `external-agents-mcp` on your PATH once you `npm i -g @mrrlin-dev/external-agents`. Nothing to host, nothing to expose over the network; it's a stdio-transport MCP server that runs locally, same as any other npm-installed CLI.
 
 Your primary agent now has these low-level tools (build your own exec/review flows on top):
 
