@@ -1,28 +1,50 @@
 # @mrrlin-dev/external-agents
 
-**One MCP server for every LLM you talk to.**
+**Cut your LLM bill by 10-100x by fanning work across free tiers of a dozen providers.**
 
-`external-agents` is a small, opinionated MCP server + CLI that lets your primary coding agent (Claude Code, Codex, Cursor) route work to a pool of secondary LLMs — Gemini, DeepSeek, Grok, OpenRouter, local Ollama, and any CLI-agentic reviewer (cursor-agent, opencode) — through one clean surface, with per-provider auth, cooldowns, round-robin, escalation, and a local statistics dashboard.
+`external-agents` is an MCP server + CLI that routes work from your primary coding agent (Claude Code, Codex, Cursor) to a **pool of 20+ free-tier LLMs** — Gemini, Groq, Cerebras, OpenRouter :free, Z.ai, Ollama Cloud, and paid tiers of DeepSeek — via one clean surface: round-robin, cooldown-aware, auto-fallback on 429, with a local dashboard for setting keys and tracking usage.
 
-> **Part of [mrrlin.com](https://mrrlin.com)** — the AI orchestration platform for developers. `external-agents` is the open-source layer we use internally to power multi-model consensus and cost-efficient atomic execution. Ships MIT so anyone can adopt it standalone.
+**The core value is economic.** You have separate free-tier quotas at Google + Groq + Cerebras + OpenRouter + Z.ai. `external-agents` treats them as **one pool of tokens** and dispatches to the next healthy bucket. What used to be one 30-req/min Gemini limit is now ~150 req/min across five providers, all at $0 — enough to run entire agentic loops (implementations, reviews, refactors) that would burn $10-100/day on a single paid model.
+
+**It's also the substrate for LLM-consensus** (the Karpathy-style [multi-model panel](https://x.com/karpathy/status/1770467322202042745): ask N different models the same question, adjudicate). `pick_agents` gives you N distinct-provider picks in one call, so a "fleet of subagents deliberating in parallel" is one primitive away. **[Mrrlin](https://mrrlin.com) uses exactly this** — its `/consensus` gate resolves two dynamic terminal reviewers from this pool every round, so every design and every diff gets stress-tested by different model families before it merges.
+
+Beyond savings and consensus, you also get the zoo-manager niceties: per-provider auth, cooldowns keyed to the *provider's* reset time (not a made-up default), quota tracking in a local JSONL, and a config-free `status` view of who is healthy right now.
+
+> **Part of [mrrlin.com](https://mrrlin.com)** — the AI orchestration platform for developers. `external-agents` is the open-source layer we use internally for cost-efficient atomic execution and multi-model consensus. Ships MIT so anyone can adopt it standalone.
 
 ---
 
-## Why this exists
+## Why this exists — the money argument first
 
-If you use more than one LLM in your workflow (and by now most people do), you've probably done at least one of these:
+If you're paying for a single frontier model to do everything (planning, atomic edits, reviews, unit-test scaffolding, docstrings), you're leaving a **lot** of money on the table:
 
-- Hand-rolled a shell script that alternates DeepSeek and Gemini for cheap tasks.
-- Copy-pasted the same "review this diff" prompt into three CLIs to compare answers.
-- Written a wrapper to detect a 429 and retry on a different provider.
-- Kept a mental note of which providers are quota-exhausted today.
+- **Free-tier quotas stack.** Google gives you generous Gemini quotas. Groq gives you 30 rpm Llama 3.3 70B at 500-800 tok/s. Cerebras gives you 30 rpm at ~2000 tok/s. OpenRouter gives you 20 rpd of `:free`-tagged frontier models with no card. Z.ai gives you GLM-4.7-flash. Ollama Cloud gives you gpt-oss:120b. Each of these has a *separate* bucket — `external-agents` treats them as one pool, so effective throughput is Σ(free-tier limits).
+- **Round-robin, not "always pick the smartest".** Weak-tier atomic tasks (rename, refactor, write test, fix lint) don't need frontier reasoning; they need a competent model that's currently under quota. `pick --tier weak` finds one; escalation to strong-tier only fires when a task genuinely fails twice.
+- **Fallback is automatic.** A 429 on Groq flips you to Cerebras without a retry loop in your code. The exhausted provider is marked with the reset time the provider itself reports in headers (not a 1-hour fallback), so you don't waste calls probing it.
+- **Consensus is cheap.** Fan `pick_agents --n 4 --min-distinct-providers 4` and dispatch in parallel — four independent verdicts across four provider families, all on free-tier buckets, in the wall-time of the slowest one.
 
-`external-agents` collapses all of that into **one tool with one config**:
+The net effect for us has been **10-100x reduction** in per-task cost for the atomic-executor workload that used to run on a single paid model. Your mileage varies with task mix, but the direction is the same for anyone who fans work out.
 
-- **Unified dispatch.** `dispatch(agent_id, prompt)` with default transport `generate_new` picks the next healthy provider by round-robin; N parallel `pick_agents` + `dispatch` calls (consumer-composed) fans out to N providers in parallel with cross-model diversity guaranteed.
-- **State that heals itself.** Quota exhaustion is detected from live responses and rate-limit headers, cooldown lasts until the *provider's* reset time (not a made-up default), and healthy calls automatically clear stale cooldowns.
-- **Auth surfaces you actually have.** Subscription CLI (Codex, Claude), env-var API keys via [`aider`](https://aider.chat) → direct-to-provider through LiteLLM (Gemini, DeepSeek, Grok, OpenRouter, and 100+ more), direct CLI (cursor-agent, opencode, ollama) — pick your credential path per entry, no forced OAuth, no gateway proxy.
-- **Statistics that answer your questions.** How many dispatches went to Gemini this week? What did they cost? Which provider is failing the most? All in a local dashboard, no cloud required.
+### What else you get (the zoo-management layer)
+
+- **Unified dispatch.** `dispatch(agent_id, prompt)` runs a specific agent; `pick_agents` picks N healthy candidates by round-robin with cross-provider diversity guaranteed.
+- **State that heals itself.** Quota exhaustion detected from live responses + rate-limit headers; cooldown honors the *provider's* reset time; healthy calls auto-clear stale cooldowns.
+- **Auth surfaces you actually have.** Subscription CLI (Codex, Claude), env-var API keys via [`aider`](https://aider.chat) → direct-to-provider through LiteLLM (100+ providers, no gateway proxy), direct CLI (cursor-agent, opencode, ollama).
+- **Statistics that answer your questions.** How many dispatches went to Gemini this week? What did they cost? Which provider is failing the most? Local JSONL log + dashboard, no cloud required.
+
+### LLM-consensus, the Karpathy pattern, made trivial
+
+Andrej Karpathy's much-shared observation: [ask several distinct LLMs the same thing and pick the majority answer — an ensemble of frontier models routinely beats any single one](https://x.com/karpathy/status/1770467322202042745). That works only if you can (a) reach N different providers cheaply and (b) fan out in parallel. `external-agents` gives you both:
+
+```
+ids  = pick_agents({ n: 3, min_distinct_providers: 3, exclude_ids: [primary] })
+outs = Promise.all(ids.map(id => dispatch({ agent_id: id, prompt })))
+// three distinct-provider verdicts, ~$0, in one wall-clock round.
+```
+
+**Mrrlin's `/consensus` gate does exactly this.** Every design/spec and every PR diff goes through a 4-reviewer panel — GPT + Gemini (over MCP) + two dynamic terminal reviewers resolved from this pool (`external-agents pick --n 2 --min-distinct-providers 2 --exclude-providers openai,google`). The primary coding agent commits a blind verdict first, then adjudicates the panel. Free-tier terminals mean the gate is essentially free to run on every substantial change.
+
+You don't need Mrrlin's gate to use the pattern — the primitives are unopinionated. Build your own reviewer panel, self-consistency check, jury-of-N verifier, whatever fits.
 
 ---
 
@@ -64,13 +86,15 @@ Open the local dashboard with `external-agents ui` and you'll get a page like:
 
 Once installed, add one block to your MCP client config.
 
+The package ships a dedicated `external-agents-mcp` binary — the MCP server entry — so client configs are plain command lines with no args.
+
 **Claude Code** (`~/.claude.json`):
 ```json
 {
   "mcpServers": {
     "external-agents": {
-      "command": "external-agents",
-      "args": ["mcp", "serve"]
+      "command": "external-agents-mcp",
+      "args": []
     }
   }
 }
@@ -79,11 +103,11 @@ Once installed, add one block to your MCP client config.
 **Codex Code** (`~/.codex/config.toml`):
 ```toml
 [mcp_servers.external-agents]
-command = "external-agents"
-args = ["mcp", "serve"]
+command = "external-agents-mcp"
+args = []
 ```
 
-**Cursor** — Settings → MCP → Add server → same command.
+**Cursor** — Settings → MCP → Add server → command `external-agents-mcp`, no args.
 
 Your primary agent now has these low-level tools (build your own exec/review flows on top):
 

@@ -34,9 +34,13 @@ function saveKeysFile(kv) {
   fs.renameSync(tmp, KEYS_FILE);
 }
 
-const REGISTRY = loadRegistry("./agents.yaml");
-const HOST = "127.0.0.1";
-const PORT = 4711;
+// Resolve agents.yaml relative to this file so `external-agents ui` works from
+// any cwd (previously the "./agents.yaml" relative path only worked from the
+// package root).
+const __ui_dir = path.dirname(new URL(import.meta.url).pathname);
+const REGISTRY = loadRegistry(path.join(__ui_dir, "agents.yaml"));
+const HOST = process.env.EXTERNAL_AGENTS_UI_HOST || "127.0.0.1";
+const PORT = Number(process.env.EXTERNAL_AGENTS_UI_PORT) || 4711;
 
 function stateRows() {
   const state = readState();

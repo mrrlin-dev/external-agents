@@ -21,6 +21,7 @@ import { pickAgents } from "./lib/pick.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 
 // bootEnv duplicated from server.js so CLI + server load the same env context.
 function bootEnv() {
@@ -184,6 +185,21 @@ function cmdProbe(args) {
   console.log(JSON.stringify({ id: agentId, ...result, checked }));
 }
 
+// `external-agents ui` — spawn the loopback dashboard (ui.js) inline so the CLI
+// stays the single entry point. ui.js runs its server at top level and blocks;
+// we spawn it as a child so cli.js does not need to import server-lifecycle code
+// and so Ctrl-C from the terminal terminates the child cleanly.
+function cmdUi(flags) {
+  const uiPath = path.join(path.dirname(new URL(import.meta.url).pathname), "ui.js");
+  const env = { ...process.env };
+  if (flags.port) env.EXTERNAL_AGENTS_UI_PORT = String(flags.port);
+  if (flags.host) env.EXTERNAL_AGENTS_UI_HOST = String(flags.host);
+  const child = spawn(process.execPath, [uiPath], { stdio: "inherit", env });
+  child.on("exit", (code) => process.exit(code ?? 0));
+  process.on("SIGINT", () => child.kill("SIGINT"));
+  process.on("SIGTERM", () => child.kill("SIGTERM"));
+}
+
 // --- entrypoint ---------------------------------------------------
 const [, , subcmd, ...rest] = process.argv;
 const { args, flags } = parseArgs(rest);
@@ -194,6 +210,7 @@ switch (subcmd) {
   case "status":   cmdStatus(flags); break;
   case "probe":    cmdProbe(args); break;
   case "stats":    cmdStats(flags); break;
+  case "ui":       cmdUi(flags); break;
   case "help":
   case "--help":
   case undefined:
@@ -202,7 +219,8 @@ switch (subcmd) {
   dispatch <agent-id> [--pro] [--transport generate_new|edit_exists] "<prompt>"
   status [--json]
   probe <agent-id>
-  stats [--since ISO] [--json]`);
+  stats [--since ISO] [--json]
+  ui [--port N] [--host H]        # local dashboard for setting keys + inspecting state (default http://127.0.0.1:4711)`);
     process.exit(subcmd ? 0 : 2);
   default: die(`unknown subcommand: ${subcmd}`, 2);
 }
