@@ -34,7 +34,7 @@ function saveKeysFile(kv) {
   fs.renameSync(tmp, KEYS_FILE);
 }
 
-// Resolve agents.yaml relative to this file so `external-agents ui` works from
+// Resolve agents.yaml relative to this file so 'external-agents ui' works from
 // any cwd (previously the "./agents.yaml" relative path only worked from the
 // package root).
 const __ui_dir = path.dirname(new URL(import.meta.url).pathname);
@@ -224,7 +224,7 @@ async function submitSuggest() {
   out.textContent = "opening GitHub issue…";
   out.style.color = "#666";
 
-  // 1) Fire-and-forget local JSONL record so `external-agents ui` still has an
+  // 1) Fire-and-forget local JSONL record so 'external-agents ui' still has an
   //    audit trail even if the user cancels the GitHub tab.
   fetch("/api/suggest", {
     method: "POST",
@@ -242,7 +242,7 @@ async function submitSuggest() {
     url ? "**Docs / setup URL:** " + url : "**Docs / setup URL:** _(none provided)_",
     "",
     "---",
-    "_Submitted via `external-agents ui` — the local dashboard's \"Missing your model?\" form._",
+    "_Submitted via 'external-agents ui' — the local dashboard's \"Missing your model?\" form._",
   ].join("\n");
   const issueUrl =
     "https://github.com/mrrlin-dev/external-agents/issues/new?" +
