@@ -18,28 +18,16 @@ import { loadRegistry } from "./lib/registry.js";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
 import { runAny, resolveEscalation, parseExhaustionSignal, getStats } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
+import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-// bootEnv duplicated from server.js so CLI + server load the same env context.
-function bootEnv() {
-  try {
-    const kiloAuthPath = path.join(os.homedir(), ".local/share/kilo/auth.json");
-    if (fs.existsSync(kiloAuthPath)) {
-      const a = JSON.parse(fs.readFileSync(kiloAuthPath, "utf-8"));
-      if (!process.env.DEEPSEEK_API_KEY && a.deepseek?.key) process.env.DEEPSEEK_API_KEY = a.deepseek.key;
-    }
-    const llmKeysPath = path.join(os.homedir(), "Library/Application Support/io.datasette.llm/keys.json");
-    if (!process.env.GEMINI_API_KEY || !process.env.GEMINI_API_KEY.startsWith("AIza")) {
-      if (fs.existsSync(llmKeysPath)) {
-        const k = JSON.parse(fs.readFileSync(llmKeysPath, "utf-8"));
-        if (k.gemini) process.env.GEMINI_API_KEY = k.gemini;
-      }
-    }
-  } catch {}
-}
+// CLI + MCP server share the same env-loading logic — see lib/credentials.js.
+// This ensures `external-agents set-credential FOO_KEY ...` followed by
+// `external-agents probe some-agent` reads the just-written keys.env, and the
+// two invocation surfaces (CLI here, MCP server in server.js) never drift.
 bootEnv();
 
 const REGISTRY_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), "agents.yaml");
@@ -185,6 +173,41 @@ function cmdProbe(args) {
   console.log(JSON.stringify({ id: agentId, ...result, checked }));
 }
 
+// `external-agents set-credential ENV_NAME [value]` — persist a credential to
+// ~/.local/state/external-agents/keys.env (0600). Two input paths:
+//   - value supplied as an argument (fine for scripts)
+//   - value read from stdin when the argument is `-` or omitted (safer for
+//     interactive use — no shell-history leak, no ps-listing exposure).
+// After persisting, the current process env is updated so a follow-up probe /
+// dispatch inside the same shell script sees the new value.
+async function cmdSetCredential(args) {
+  const [envName, valueArg] = args;
+  if (!envName) {
+    die("usage: external-agents set-credential <ENV_NAME> [<value> | -]\n  <value> may be `-` (or omitted) to read from stdin", 2);
+  }
+  let value = valueArg;
+  if (!value || value === "-") {
+    // Read from stdin. If a TTY, prompt on stderr.
+    if (process.stdin.isTTY) {
+      process.stderr.write(`Enter value for ${envName} (echoed): `);
+    }
+    value = await new Promise((resolve) => {
+      let buf = "";
+      process.stdin.setEncoding("utf-8");
+      process.stdin.on("data", (chunk) => { buf += chunk; });
+      process.stdin.on("end", () => resolve(buf.replace(/\r?\n$/, "")));
+    });
+  }
+  try {
+    const persistedTo = persistCredential(envName, value);
+    // Print to stderr so stdout stays clean for scripting; do NOT echo the value.
+    console.error(`external-agents: ${envName} persisted to ${persistedTo}`);
+    console.error(`  Restart your MCP client (Codex / Claude Code) so its external-agents-mcp instance re-reads keys.env at startup.`);
+  } catch (e) {
+    die(`set-credential failed: ${e.message}`, 2);
+  }
+}
+
 // `external-agents ui` — spawn the loopback dashboard (ui.js) inline so the CLI
 // stays the single entry point. ui.js runs its server at top level and blocks;
 // we spawn it as a child so cli.js does not need to import server-lifecycle code
@@ -211,6 +234,7 @@ switch (subcmd) {
   case "probe":    cmdProbe(args); break;
   case "stats":    cmdStats(flags); break;
   case "ui":       cmdUi(flags); break;
+  case "set-credential": await cmdSetCredential(args); break;
   case "help":
   case "--help":
   case undefined:
@@ -220,7 +244,8 @@ switch (subcmd) {
   status [--json]
   probe <agent-id>
   stats [--since ISO] [--json]
-  ui [--port N] [--host H]        # local dashboard for setting keys + inspecting state (default http://127.0.0.1:4711)`);
+  ui [--port N] [--host H]        # local dashboard for setting keys + inspecting state (default http://127.0.0.1:4711)
+  set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin`);
     process.exit(subcmd ? 0 : 2);
   default: die(`unknown subcommand: ${subcmd}`, 2);
 }

@@ -16,85 +16,11 @@ import { pickAgents } from "./lib/pick.js";
 
 const REGISTRY = loadRegistry("./agents.yaml");
 
-// Env-var boot injection. Look for credentials in known local stores and populate
-// process.env for aider/other CLIs. Never overrides an already-set var.
-// UI-set persisted keys — loaded FIRST (highest precedence) so a value the
-// operator saved via /api/set_credential wins over whatever legacy stores
-// contain. File format: one KEY=value per line, no quotes. Mode 0600.
-const KEYS_FILE = path.join(os.homedir(), ".local/state/external-agents/keys.env");
-
-function loadKeysFile() {
-  try {
-    if (!fs.existsSync(KEYS_FILE)) return {};
-    const raw = fs.readFileSync(KEYS_FILE, "utf-8");
-    const out = {};
-    for (const line of raw.split(/\r?\n/)) {
-      const t = line.trim();
-      if (!t || t.startsWith("#")) continue;
-      const eq = t.indexOf("=");
-      if (eq < 0) continue;
-      const k = t.slice(0, eq).trim();
-      const v = t.slice(eq + 1);
-      if (k) out[k] = v;
-    }
-    return out;
-  } catch (e) {
-    console.error(`external-agents-spike: WARN — keys.env unreadable: ${e.message}`);
-    return {};
-  }
-}
-
-function saveKeysFile(kv) {
-  const dir = path.dirname(KEYS_FILE);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const body = Object.entries(kv)
-    .filter(([k, v]) => k && typeof v === "string")
-    .map(([k, v]) => `${k}=${v}`).join("\n") + "\n";
-  const tmp = KEYS_FILE + ".tmp." + process.pid + "." + Date.now();
-  fs.writeFileSync(tmp, body, { mode: 0o600 });
-  fs.renameSync(tmp, KEYS_FILE);
-}
-
-function bootEnv() {
-  try {
-    // 1. UI-persisted keys (highest priority — operator explicitly set them)
-    const persisted = loadKeysFile();
-    for (const [k, v] of Object.entries(persisted)) {
-      if (!process.env[k]) process.env[k] = v;
-    }
-
-    // 2. Kilo auth store (legacy — DeepSeek key only; the Google proxy token
-    //    in Kilo does NOT work against direct Google API)
-    const kiloAuthPath = path.join(os.homedir(), ".local/share/kilo/auth.json");
-    if (fs.existsSync(kiloAuthPath)) {
-      const kiloAuth = JSON.parse(fs.readFileSync(kiloAuthPath, "utf-8"));
-      if (!process.env.DEEPSEEK_API_KEY && kiloAuth.deepseek?.key) {
-        process.env.DEEPSEEK_API_KEY = kiloAuth.deepseek.key;
-      }
-    }
-    // 3. llm-key store (AI Studio Gemini key, `AIza...` format)
-    const llmKeysPath = path.join(os.homedir(), "Library/Application Support/io.datasette.llm/keys.json");
-    if (!process.env.GEMINI_API_KEY || !process.env.GEMINI_API_KEY.startsWith("AIza")) {
-      if (fs.existsSync(llmKeysPath)) {
-        const llmKeys = JSON.parse(fs.readFileSync(llmKeysPath, "utf-8"));
-        if (llmKeys.gemini) process.env.GEMINI_API_KEY = llmKeys.gemini;
-      }
-    }
-  } catch (e) {
-    console.error(`external-agents-spike: WARN — bootEnv failed: ${e.message}`);
-  }
-}
+// Env-var boot injection lives in the shared credentials module (single source
+// of truth for CLI + MCP server + UI). Priority: keys.env → Kilo auth store →
+// llm keys. Never overrides an already-set env var.
+import { KEYS_FILE, loadKeysFile, persistCredential, bootEnv } from "./lib/credentials.js";
 bootEnv();
-
-// Exposed for the set_credential MCP tool + /api/set_credential UI route.
-export function persistCredential(envName, value) {
-  if (!envName || !/^[A-Z_][A-Z0-9_]*$/.test(envName)) throw new Error("invalid env var name");
-  const persisted = loadKeysFile();
-  persisted[envName] = value;
-  saveKeysFile(persisted);
-  // Also inject into the running process env so THIS session sees it immediately.
-  process.env[envName] = value;
-}
 
 function findAgent(id) {
   return REGISTRY.agents.find((a) => a.id === id);
