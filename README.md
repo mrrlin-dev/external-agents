@@ -6,7 +6,7 @@
 
 **The core value is economic.** You have separate free-tier quotas at Google + Groq + Cerebras + OpenRouter + Z.ai. `external-agents` treats them as **one pool of tokens** and dispatches to the next healthy bucket. What used to be one 30-req/min Gemini limit is now ~150 req/min across five providers, all at $0 — enough to run entire agentic loops (implementations, reviews, refactors) that would burn $10-100/day on a single paid model.
 
-**It's also the substrate for LLM-consensus** (the Karpathy-style [multi-model panel](https://x.com/karpathy/status/1770467322202042745): ask N different models the same question, adjudicate). `pick_agents` gives you N distinct-provider picks in one call, so a "fleet of subagents deliberating in parallel" is one primitive away. **[Mrrlin](https://mrrlin.com) uses exactly this** — its `/consensus` gate resolves two dynamic terminal reviewers from this pool every round, so every design and every diff gets stress-tested by different model families before it merges.
+**It's also the substrate for LLM-consensus** — the "ask N different models the same question, adjudicate" pattern popularized in [LLM-as-a-Judge](https://arxiv.org/abs/2306.05685) work and echoed frequently by [Andrej Karpathy](https://x.com/karpathy) as an "LLM Council" idea: an ensemble of frontier models routinely beats any single one. `pick_agents` gives you N distinct-provider picks in one call, so a "fleet of subagents deliberating in parallel" is one primitive away. **[Mrrlin](https://mrrlin.com) uses exactly this** — its consensus gate resolves two dynamic terminal reviewers from this pool every round, so every design and every diff gets stress-tested by different model families before it merges.
 
 Beyond savings and consensus, you also get the zoo-manager niceties: per-provider auth, cooldowns keyed to the *provider's* reset time (not a made-up default), quota tracking in a local JSONL, and a config-free `status` view of who is healthy right now.
 
@@ -32,9 +32,9 @@ The net effect for us has been **10-100x reduction** in per-task cost for the at
 - **Auth surfaces you actually have.** Subscription CLI (Codex, Claude), env-var API keys via [`aider`](https://aider.chat) → direct-to-provider through LiteLLM (100+ providers, no gateway proxy), direct CLI (cursor-agent, opencode, ollama).
 - **Statistics that answer your questions.** How many dispatches went to Gemini this week? What did they cost? Which provider is failing the most? Local JSONL log + dashboard, no cloud required.
 
-### LLM-consensus, the Karpathy pattern, made trivial
+### LLM-consensus — the multi-model panel, made trivial
 
-Andrej Karpathy's much-shared observation: [ask several distinct LLMs the same thing and pick the majority answer — an ensemble of frontier models routinely beats any single one](https://x.com/karpathy/status/1770467322202042745). That works only if you can (a) reach N different providers cheaply and (b) fan out in parallel. `external-agents` gives you both:
+Ask several distinct LLMs the same thing and pick the majority answer — an ensemble of frontier models routinely beats any single one. This pattern shows up as [LLM-as-a-Judge](https://arxiv.org/abs/2306.05685) benchmarks, "LLM Council" experiments, [self-consistency decoding](https://arxiv.org/abs/2203.11171), and Karpathy's [recurring observation](https://x.com/karpathy) that mixed panels are strong. But it works only if you can (a) reach N different providers cheaply and (b) fan out in parallel. `external-agents` gives you both:
 
 ```
 ids  = pick_agents({ n: 3, min_distinct_providers: 3, exclude_ids: [primary] })
@@ -42,7 +42,7 @@ outs = Promise.all(ids.map(id => dispatch({ agent_id: id, prompt })))
 // three distinct-provider verdicts, ~$0, in one wall-clock round.
 ```
 
-**Mrrlin's `/consensus` gate does exactly this.** Every design/spec and every PR diff goes through a 4-reviewer panel — GPT + Gemini (over MCP) + two dynamic terminal reviewers resolved from this pool (`external-agents pick --n 2 --min-distinct-providers 2 --exclude-providers openai,google`). The primary coding agent commits a blind verdict first, then adjudicates the panel. Free-tier terminals mean the gate is essentially free to run on every substantial change.
+**Mrrlin's consensus gate does exactly this.** Every design/spec and every PR diff goes through a 4-reviewer panel — GPT + Gemini (over MCP) + two dynamic terminal reviewers resolved from this pool (`external-agents pick --n 2 --min-distinct-providers 2 --exclude-providers openai,google`). The primary coding agent commits a blind verdict first, then adjudicates the panel. Free-tier terminals mean the gate is essentially free to run on every substantial change.
 
 You don't need Mrrlin's gate to use the pattern — the primitives are unopinionated. Build your own reviewer panel, self-consistency check, jury-of-N verifier, whatever fits.
 
@@ -76,9 +76,7 @@ external-agents dispatch "$id" "Summarize this in one line: <paste any text>"
 external-agents stats
 ```
 
-Open the local dashboard with `external-agents ui` and you'll get a page like:
-
-![external-agents dashboard](docs/screenshot.png)
+Open the local dashboard with `external-agents ui` (see the [UI section](#local-ui) below).
 
 ---
 
@@ -87,6 +85,8 @@ Open the local dashboard with `external-agents ui` and you'll get a page like:
 Once installed, add one block to your MCP client config.
 
 The package ships a dedicated `external-agents-mcp` binary — the MCP server entry — so client configs are plain command lines with no args. **Both Claude Code and Codex expose a one-liner** for this; you should never have to hand-edit config files unless you want to.
+
+**How the client finds it.** `npm i -g @mrrlin-dev/external-agents` puts two symlinks on your global bin directory (`/opt/homebrew/bin`, `/usr/local/bin`, or wherever your Node global-bin lives) — `external-agents` (the CLI) and `external-agents-mcp` (the MCP server). Because that directory is on your `PATH`, running `external-agents-mcp` from any shell just works. `claude mcp add external-agents external-agents-mcp` stores the literal string `external-agents-mcp` in `~/.claude.json`; when Claude Code starts, it spawns that as a child process the same way your shell would, and shell PATH resolution finds the binary. No hosting, no registry lookup, no daemon. If you skipped the `npm i -g` step, `claude mcp add` succeeds but the server fails at startup with "command not found" — install first.
 
 ### Claude Code
 
@@ -150,7 +150,7 @@ Your primary agent now has these low-level tools (build your own exec/review flo
 ids  = pick_agents({ n: 3, min_distinct_providers: 3, exclude_ids: [primary] })
 outs = Promise.all(ids.map(id => dispatch({ agent_id: id, prompt })))
 ```
-The package is deliberately unopinionated about *what* you compose. Mrrlin uses these primitives for its own `/consensus` gate and atomic-executor loop; your workflow probably has its own vocabulary — that's the whole point.
+The package is deliberately unopinionated about *what* you compose. Mrrlin uses these primitives for its own consensus gate and atomic-executor loop; your workflow probably has its own vocabulary — that's the whole point.
 
 ---
 
@@ -220,21 +220,62 @@ Full schema documented in [docs/registry-schema.md](docs/registry-schema.md).
 
 ---
 
-## Local UI
+## Local UI — setting up API keys the easy way
 
-Run `external-agents ui` and a page opens on `http://127.0.0.1:port`. Loopback only — never exposed to the network. Shows:
+```bash
+external-agents ui
+# → external-agents ui: http://127.0.0.1:4711
+```
 
-**💰 "Unlock more free voices" banner at the top** — as long as you have any free-tier provider that hasn't been wired up yet (no env var set), the UI shows a golden banner urging you to sign up. One row per provider with: what it gives you ("Groq: ~500-800 tok/s — fastest on the market"), the exact env var name to set, and a green "Get free key ↗" link to the signup page. **Signup is usually 60 seconds and doesn't ask for a card.** Once you add the key and restart your MCP client, that provider drops from the banner and joins the pool.
+Loopback dashboard (never exposed to the network). Two things you want it for:
 
+### 1) Golden banner — sign up + paste key inline
 
-- Every registry entry with a live status badge
-- **Per-row Usage link** — for each provider that publishes one (Gemini / DeepSeek / OpenAI / Z.ai / Ollama Cloud / ...), a small `↗ usage` link opens the provider's own dashboard so you never have to guess where your billing lives
-- Install / auth / verify buttons per state
-- **"Missing your model?" panel** — a two-input form (model name + optional docs URL) at the bottom of the table. Submit records your suggestion locally (JSONL). If you're running inside mrrlin, the same submit is intercepted and filed as an actionable task in your inbox
-- Statistics tab: dispatches, costs, success rate, per-agent timing
-- Config editor with schema validation
+For every free-tier provider that's currently `needs_auth` (no env var set), a golden row appears at the top with:
 
-Everything the UI does is also available in the CLI — the UI is a convenience, not a requirement.
+- What the provider gives you ("Groq: ~500-800 tok/s — fastest on the market"; "Cerebras: ~2000 tok/s, 30 rpm free"; "OpenRouter: 50+ models tagged `:free`"; …)
+- A green **"Get free key ↗"** link that opens the provider's signup page in a new tab. Signup is usually 60 seconds and does not ask for a card.
+- **A password input + Save button** — paste the key here and click Save. It persists to `~/.local/state/external-agents/keys.env` (mode 0600, loopback only, never sent anywhere). Enter also submits.
+
+Once saved, restart your MCP client (Codex / Claude Code) so `external-agents-mcp` re-reads `keys.env` at startup. The provider drops from the banner and joins the pool.
+
+### 2) Registry table + Missing-your-model form
+
+- Every registry entry with a live status badge (healthy / needs_auth / quota_exhausted / rate_limited / not_installed)
+- Per-row Verify button (re-probes the entry) + Usage link (opens the provider's own billing dashboard for entries that publish one — Gemini, DeepSeek, Z.ai, Ollama Cloud, …)
+- "Missing your model?" form at the bottom — submits a pre-filled GitHub issue on [`mrrlin-dev/external-agents/issues`](https://github.com/mrrlin-dev/external-agents/issues) with label `missing-model`, so requests are visible + trackable (and also logged locally as backup)
+
+### CLI equivalent (if you prefer scripting)
+
+Every UI action has a CLI equivalent. To set a key without opening the browser:
+
+```bash
+# arg form (bash-history exposed — fine for scripts)
+external-agents set-credential CEREBRAS_API_KEY csk-…
+
+# stdin form (nothing in bash-history)
+pbpaste | external-agents set-credential CEREBRAS_API_KEY -
+
+# interactive form (typed prompt)
+external-agents set-credential CEREBRAS_API_KEY
+```
+
+All three paths write to the same `~/.local/state/external-agents/keys.env` — pick whichever is comfortable.
+
+### One-minute walkthrough
+
+```
+1. external-agents ui                       # opens http://127.0.0.1:4711
+2. Golden banner shows 3 unlockable providers (Groq, OpenRouter, Cerebras)
+3. Click "Get free key ↗" on Groq → console.groq.com opens, sign up, copy key
+4. Paste key into the row's input, click Save → "✓ persisted to keys.env"
+5. Repeat for OpenRouter, Cerebras
+6. Restart your MCP client (Codex/Claude Code) — banner shrinks, pool grows
+
+Total time: ~3 minutes. Result: 7 more free-tier agents active in `pick`.
+```
+
+_(TODO: an animated GIF walkthrough belongs here — see [issue #<TBD>](https://github.com/mrrlin-dev/external-agents/issues) for the recording task.)_
 
 ---
 
