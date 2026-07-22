@@ -242,8 +242,8 @@ async function submitSuggest() {
     url ? "**Docs / setup URL:** " + url : "**Docs / setup URL:** _(none provided)_",
     "",
     "---",
-    "_Submitted via 'external-agents ui' — the local dashboard's \"Missing your model?\" form._",
-  ].join("\n");
+    '_Submitted via \\'external-agents ui\\' — the local dashboard\\'s Missing-your-model form._',
+  ].join('\\n');
   const issueUrl =
     "https://github.com/mrrlin-dev/external-agents/issues/new?" +
     "labels=missing-model" +
