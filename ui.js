@@ -358,9 +358,14 @@ async function saveKey(envName) {
     });
     const j = await r.json();
     if (r.ok) {
-      stat.textContent = "✓ persisted to " + j.persisted_to + ". Restart your MCP client to pick it up.";
+      const nProbed = (j.reprobed || []).length;
+      stat.textContent = "✓ persisted to keys.env" + (nProbed ? " · " + nProbed + " entries re-probed" : "");
       stat.className = "status";
       inp.value = "";
+      // Immediately refresh the table + banner so freshly-unlocked entries
+      // drop from the banner without a manual page reload. State has already
+      // been server-side re-probed by /api/set_credential.
+      await refresh();
     } else {
       stat.textContent = "error: " + (j.error || r.statusText);
       stat.className = "status err";
@@ -423,11 +428,31 @@ const server = http.createServer(async (req, res) => {
         // restart to see it. We tell them so in the response.
         process.env[env_name] = value;
         console.error(`external-agents ui: credential persisted for ${env_name} (${value.length} chars)`);
+        // Re-probe every registry entry that references this env var — either
+        // via its `auth: "env:XYZ"` field or its `transports.generate_new.env`.
+        // Without this, state.json keeps its stale `needs_auth` marker until
+        // the operator restarts the process, and the banner keeps counting
+        // just-unlocked entries as still-locked. State + banner reconcile now.
+        const affected = REGISTRY.agents.filter((a) => {
+          const authVar = typeof a.auth === "string" && a.auth.startsWith("env:")
+            ? a.auth.slice("env:".length).split(/\s+/)[0]
+            : null;
+          const genVar = a.transports?.generate_new?.env || null;
+          return authVar === env_name || genVar === env_name;
+        });
+        const patch = {};
+        for (const a of affected) {
+          const r = probeInstalled(a);
+          patch[a.id] = { ...r, checked: Math.floor(Date.now() / 1000) };
+        }
+        if (Object.keys(patch).length > 0) writeState(patch);
+        console.error(`external-agents ui: re-probed ${affected.length} entries after set_credential(${env_name}): ${affected.map((a) => a.id).join(", ")}`);
         return json(res, 200, {
           ok: true,
           env_name,
           persisted_to: KEYS_FILE,
-          restart_required: "Restart your MCP client (Claude Code / Codex) to pick up the new key.",
+          reprobed: affected.map((a) => a.id),
+          restart_required: "Restart your MCP client (Claude Code / Codex) so IT reads keys.env too.",
         });
       } catch (e) {
         return json(res, 400, { error: "invalid json: " + e.message });
