@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadRegistry } from "./lib/registry.js";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
+import { verifyCredential } from "./lib/dispatch.js";
 
 // UI-set persisted keys — MUST use the same file that server.js reads at
 // startup, otherwise the operator's saved key is invisible on next boot.
@@ -177,7 +178,7 @@ const PAGE = `<!doctype html>
 
 <div style="margin-top: 32px; padding: 16px; background: #fff; border: 1px dashed #ccc; border-radius: 4px;">
   <h3 style="margin: 0 0 4px 0; font-size: 15px;">Missing your model?</h3>
-  <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">Suggest a new model or provider &mdash; opens a pre-filled issue on the public tracker at <a href="https://github.com/mrrlin-dev/external-agents/issues" target="_blank" rel="noopener noreferrer">mrrlin-dev/external-agents</a> (also logged locally).</p>
+  <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">Suggest a new model or provider &mdash; opens a pre-filled issue on the public tracker at <a href="https://github.com/mrrlin-dev/external-agents/issues" target="_blank" rel="noopener noreferrer">mrrlin-dev/external-agents</a>.</p>
   <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
     <input id="suggest-name" placeholder="Model or provider name (e.g. anthropic/haiku-4-5)" style="flex: 1; min-width: 260px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font: inherit;">
     <input id="suggest-url" placeholder="Docs / setup URL (optional)" style="flex: 1; min-width: 260px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font: inherit;">
@@ -224,18 +225,10 @@ async function submitSuggest() {
   out.textContent = "opening GitHub issue…";
   out.style.color = "#666";
 
-  // 1) Fire-and-forget local JSONL record so 'external-agents ui' still has an
-  //    audit trail even if the user cancels the GitHub tab.
-  fetch("/api/suggest", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, url }),
-  }).catch(() => { /* non-blocking; the public issue below is the real submit */ });
-
-  // 2) Public path — open a pre-filled New Issue on the external-agents repo.
-  //    The registry maintainer picks it up from the public tracker; anyone else
-  //    watching the repo can see it too, so proposals are discoverable, not stuck
-  //    in a private JSONL.
+  // Open a pre-filled New Issue on the public tracker. The registry
+  // maintainer picks it up from GitHub; anyone else watching the repo can see
+  // it too, so proposals are discoverable and trackable without a local
+  // JSONL sidecar (which nobody ever reads).
   const body = [
     "**Model / provider:** " + name,
     "",
@@ -252,8 +245,7 @@ async function submitSuggest() {
   window.open(issueUrl, "_blank", "noopener,noreferrer");
 
   out.innerHTML = "opened a pre-filled GitHub issue in a new tab — " +
-    "just click <b>Submit new issue</b> there. " +
-    '(also logged locally as backup)';
+    "just click <b>Submit new issue</b> there.";
   out.style.color = "#4a8";
   document.getElementById("suggest-name").value = "";
   document.getElementById("suggest-url").value = "";
@@ -358,13 +350,20 @@ async function saveKey(envName) {
     });
     const j = await r.json();
     if (r.ok) {
+      const v = (j.verified || [])[0] || {};
       const nProbed = (j.reprobed || []).length;
-      stat.textContent = "✓ persisted to keys.env" + (nProbed ? " · " + nProbed + " entries re-probed" : "");
-      stat.className = "status";
+      if (v.ok) {
+        const ms = v.latencyMs ? " (" + v.latencyMs + "ms)" : "";
+        stat.innerHTML = "<span style=\\"color:#1a6b31;\\">✓ verified" + ms + "</span> — " + nProbed + " model" + (nProbed === 1 ? "" : "s") + " unlocked";
+      } else if (v.hint) {
+        stat.innerHTML = "<span style=\\"color:#9a2b1c;\\">✗ " + v.hint + "</span> — the key was saved but the provider rejected it";
+      } else {
+        stat.innerHTML = "<span style=\\"color:#1a6b31;\\">✓ persisted</span> — " + nProbed + " model" + (nProbed === 1 ? "" : "s") + " unlocked";
+      }
       inp.value = "";
       // Immediately refresh the table + banner so freshly-unlocked entries
-      // drop from the banner without a manual page reload. State has already
-      // been server-side re-probed by /api/set_credential.
+      // drop from the banner without a manual page reload. Verified failures
+      // remain in needs_auth so the banner keeps them visible.
       await refresh();
     } else {
       stat.textContent = "error: " + (j.error || r.statusText);
@@ -413,7 +412,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && p === "/api/set_credential") {
     let body = "";
     req.on("data", (c) => { body += c.toString(); });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const { env_name, value } = JSON.parse(body || "{}");
         if (!env_name || typeof env_name !== "string" || !/^[A-Z_][A-Z0-9_]*$/.test(env_name)) {
@@ -440,18 +439,51 @@ const server = http.createServer(async (req, res) => {
           const genVar = a.transports?.generate_new?.env || null;
           return authVar === env_name || genVar === env_name;
         });
+        // Two-stage state update:
+        //  1. probeInstalled — cheap sanity check (env var set, binary present)
+        //  2. verifyCredential — REAL API round-trip (~<10s, max_tokens=1)
+        //     against ONE representative entry per (provider × env_name) so we
+        //     confirm the pasted key actually works. Verifying every entry that
+        //     shares the same env var is pointless — they auth the same way.
         const patch = {};
         for (const a of affected) {
           const r = probeInstalled(a);
           patch[a.id] = { ...r, checked: Math.floor(Date.now() / 1000) };
         }
+        // Pick one entry per provider to verify (they all share the same key).
+        const seenProviders = new Set();
+        const toVerify = affected.filter((a) => {
+          if (seenProviders.has(a.provider)) return false;
+          seenProviders.add(a.provider);
+          return a.transports?.generate_new?.url;
+        });
+        const verifyResults = await Promise.all(toVerify.map(async (a) => {
+          const v = await verifyCredential(a);
+          return { agent_id: a.id, provider: a.provider, ...v };
+        }));
+        // Propagate a failed verify to every entry in that provider — mark
+        // needs_auth with the failure hint so banner keeps it visible.
+        for (const vr of verifyResults) {
+          if (!vr.ok) {
+            for (const a of affected.filter((x) => x.provider === vr.provider)) {
+              patch[a.id] = {
+                state: "needs_auth",
+                note: `verify failed: ${vr.hint || "unknown"}`,
+                checked: Math.floor(Date.now() / 1000),
+              };
+            }
+          }
+        }
         if (Object.keys(patch).length > 0) writeState(patch);
-        console.error(`external-agents ui: re-probed ${affected.length} entries after set_credential(${env_name}): ${affected.map((a) => a.id).join(", ")}`);
+        const okCount = verifyResults.filter((v) => v.ok).length;
+        const failCount = verifyResults.length - okCount;
+        console.error(`external-agents ui: set_credential(${env_name}) — re-probed ${affected.length}, verified ${verifyResults.length} providers (${okCount} ok, ${failCount} failed): ${verifyResults.map((v) => v.provider + "=" + (v.ok ? "ok" : "FAIL:" + v.hint)).join(", ")}`);
         return json(res, 200, {
           ok: true,
           env_name,
           persisted_to: KEYS_FILE,
           reprobed: affected.map((a) => a.id),
+          verified: verifyResults,
           restart_required: "Restart your MCP client (Claude Code / Codex) so IT reads keys.env too.",
         });
       } catch (e) {
@@ -461,35 +493,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === "POST" && p === "/api/suggest") {
-    let body = "";
-    req.on("data", (c) => { body += c.toString(); });
-    req.on("end", () => {
-      try {
-        const { name, url: docUrl } = JSON.parse(body || "{}");
-        if (!name || typeof name !== "string") {
-          return json(res, 400, { error: "missing 'name'" });
-        }
-        // In the standalone spike, we persist locally + log to stderr so operators
-        // can see the request. Mrrlin consumers wire this endpoint into the
-        // report-issue mechanism (see ADR 0021 § Consumer-side UX affordances).
-        const id = "sug-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
-        const entry = { id, ts: new Date().toISOString(), name: name.trim(), url: (docUrl || "").trim() };
-        try {
-          const dir = path.join(os.homedir(), ".local/state/external-agents");
-          fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-          fs.appendFileSync(path.join(dir, "suggestions.jsonl"), JSON.stringify(entry) + "\n", { mode: 0o600 });
-        } catch (e) {
-          console.error(`external-agents ui: WARN — could not persist suggestion: ${e.message}`);
-        }
-        console.error(`external-agents ui: suggestion recorded → id=${id} name="${entry.name}"${entry.url ? " url=" + entry.url : ""}`);
-        return json(res, 200, { ok: true, id });
-      } catch (e) {
-        return json(res, 400, { error: "invalid json: " + e.message });
-      }
-    });
-    return;
-  }
+  // NB: /api/suggest was removed — the "Missing your model?" form now opens
+  // a pre-filled GitHub issue on the public tracker directly (no local write
+  // needed, and the local JSONL was write-only, never read).
 
   if ((req.method === "GET" || req.method === "POST") && p === "/api/probe") {
     const id = parsed.query.id;
