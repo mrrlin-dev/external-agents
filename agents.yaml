@@ -345,6 +345,19 @@ agents:
     transports:
       edit_exists: "opencode -p"
 
+  # Kiro CLI (AWS Kiro Studio's headless chat mode). `kiro-cli chat
+  # --no-interactive --trust-tools=fs_read "<prompt>"` runs the agent read-only
+  # (fs_read only, no writes/exec), which is what /consensus terminal reviewers
+  # need. Requires prior `kiro-cli login`; state at ~/.aws/sso equivalent.
+  - id: kiro
+    provider: kiro
+    model: default
+    tier: strong
+    tags: [agentic]
+    auth: "cli:kiro-cli"
+    transports:
+      edit_exists: "kiro-cli chat --no-interactive --trust-tools=fs_read"
+
   # ============ Primary orchestrator (subscription CLI) ============
   # These are strong-tier agentic CLIs backed by an operator subscription — not
   # API keys. `pick_agents` excludes strong-tier by default (weak-only filter),
