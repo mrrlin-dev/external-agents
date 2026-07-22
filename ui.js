@@ -177,7 +177,7 @@ const PAGE = `<!doctype html>
 
 <div style="margin-top: 32px; padding: 16px; background: #fff; border: 1px dashed #ccc; border-radius: 4px;">
   <h3 style="margin: 0 0 4px 0; font-size: 15px;">Missing your model?</h3>
-  <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">Suggest a new model or provider — we&rsquo;ll pick it up.</p>
+  <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">Suggest a new model or provider &mdash; opens a pre-filled issue on the public tracker at <a href="https://github.com/mrrlin-dev/external-agents/issues" target="_blank" rel="noopener noreferrer">mrrlin-dev/external-agents</a> (also logged locally).</p>
   <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
     <input id="suggest-name" placeholder="Model or provider name (e.g. anthropic/haiku-4-5)" style="flex: 1; min-width: 260px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font: inherit;">
     <input id="suggest-url" placeholder="Docs / setup URL (optional)" style="flex: 1; min-width: 260px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font: inherit;">
@@ -221,28 +221,42 @@ async function submitSuggest() {
   const url  = document.getElementById("suggest-url").value.trim();
   const out  = document.getElementById("suggest-result");
   if (!name) { out.textContent = "please enter a model or provider name"; out.style.color = "#a33"; return; }
-  out.textContent = "sending...";
+  out.textContent = "opening GitHub issue…";
   out.style.color = "#666";
-  try {
-    const r = await fetch("/api/suggest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, url })
-    });
-    const j = await r.json();
-    if (r.ok) {
-      out.textContent = "thanks — recorded (id " + (j.id || "?") + "). We’ll pick it up.";
-      out.style.color = "#4a8";
-      document.getElementById("suggest-name").value = "";
-      document.getElementById("suggest-url").value = "";
-    } else {
-      out.textContent = "error: " + (j.error || r.statusText);
-      out.style.color = "#a33";
-    }
-  } catch (e) {
-    out.textContent = "network error: " + e.message;
-    out.style.color = "#a33";
-  }
+
+  // 1) Fire-and-forget local JSONL record so `external-agents ui` still has an
+  //    audit trail even if the user cancels the GitHub tab.
+  fetch("/api/suggest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, url }),
+  }).catch(() => { /* non-blocking; the public issue below is the real submit */ });
+
+  // 2) Public path — open a pre-filled New Issue on the external-agents repo.
+  //    The registry maintainer picks it up from the public tracker; anyone else
+  //    watching the repo can see it too, so proposals are discoverable, not stuck
+  //    in a private JSONL.
+  const body = [
+    "**Model / provider:** " + name,
+    "",
+    url ? "**Docs / setup URL:** " + url : "**Docs / setup URL:** _(none provided)_",
+    "",
+    "---",
+    "_Submitted via `external-agents ui` — the local dashboard's \"Missing your model?\" form._",
+  ].join("\n");
+  const issueUrl =
+    "https://github.com/mrrlin-dev/external-agents/issues/new?" +
+    "labels=missing-model" +
+    "&title=" + encodeURIComponent("Add " + name) +
+    "&body=" + encodeURIComponent(body);
+  window.open(issueUrl, "_blank", "noopener,noreferrer");
+
+  out.innerHTML = "opened a pre-filled GitHub issue in a new tab — " +
+    "just click <b>Submit new issue</b> there. " +
+    '(also logged locally as backup)';
+  out.style.color = "#4a8";
+  document.getElementById("suggest-name").value = "";
+  document.getElementById("suggest-url").value = "";
 }
 // Per-provider signup metadata for the unlock banner. Only providers whose
 // entries carry the "free" tag AND may show up in needs_auth appear here.

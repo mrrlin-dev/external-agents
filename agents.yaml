@@ -372,3 +372,18 @@ agents:
     usage_url: "https://console.anthropic.com/settings/usage"
     transports:
       edit_exists: "claude --print"
+
+  # Weak-tier Sonnet — same Claude subscription, cheaper model. Included in
+  # default `pick_agents` runs (weak filter passes it), so `dispatch` /
+  # `/consensus` terminal-picks and the atomic-executor workload can route to
+  # Claude via subscription without burning Opus tokens.
+  - id: claude-sonnet
+    provider: anthropic
+    model: claude-sonnet-5
+    tier: weak
+    tags: [quick]
+    auth: "cli:claude"
+    preference_order: 20
+    usage_url: "https://console.anthropic.com/settings/usage"
+    transports:
+      edit_exists: "claude --print --model claude-sonnet-5"
