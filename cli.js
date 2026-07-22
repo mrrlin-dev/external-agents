@@ -227,10 +227,20 @@ function cmdInit(flags) {
   const child = spawn(process.execPath, [uiPath], { stdio: "inherit", env });
   // Give the UI ~600ms to bind before opening the browser (loopback listen is
   // usually instantaneous but we do not want the browser to open on a not-yet-
-  // bound port).
+  // bound port). Browser-open is best-effort — swallow BOTH sync spawn errors
+  // AND async 'error' events (ENOENT is emitted async, not thrown; without a
+  // listener it crashes the process — this is what breaks curl|bash on a
+  // headless Linux box that has no xdg-open installed). The UI keeps running.
   setTimeout(() => {
-    try { spawn(opener, openerArgs, { stdio: "ignore", detached: true }).unref(); }
-    catch { /* browser open is best-effort; UI is still up on ${url} */ }
+    try {
+      const opener_proc = spawn(opener, openerArgs, { stdio: "ignore", detached: true });
+      opener_proc.on("error", (err) => {
+        console.error(`external-agents init: could not launch browser (${err.code || err.message}) — open ${url} manually.`);
+      });
+      opener_proc.unref();
+    } catch (err) {
+      console.error(`external-agents init: could not launch browser (${err.message}) — open ${url} manually.`);
+    }
   }, 600);
   child.on("exit", (code) => process.exit(code ?? 0));
   process.on("SIGINT",  () => child.kill("SIGINT"));
