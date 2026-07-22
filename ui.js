@@ -310,7 +310,7 @@ function renderUnlock(agents) {
   const rows = providers.map(p => {
     const m = PROVIDER_META[p] || { label: p, pitch: "", signup: "#", env: "?" };
     const count = missing.filter(a => a.provider === p).length;
-    // Ollama-cloud uses its own CLI (`ollama` — no API key input needed),
+    // Ollama-cloud uses its own CLI ('ollama' — no API key input needed),
     // so its row skips the input + Save and just shows the signup/download link.
     const hasEnvInput = !!m.env && !m.env.startsWith("(");
     const keyInput = hasEnvInput
