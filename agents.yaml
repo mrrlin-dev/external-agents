@@ -346,6 +346,13 @@ agents:
       edit_exists: "opencode -p"
 
   # ============ Primary orchestrator (subscription CLI) ============
+  # These are strong-tier agentic CLIs backed by an operator subscription — not
+  # API keys. `pick_agents` excludes strong-tier by default (weak-only filter),
+  # so they are reached only via an explicit `dispatch <id>` call, typically as
+  # the primary-orchestrator role or as `escalate_to_pro: true` on a weak-tier
+  # dispatch that failed. Which of the two is "primary" is decided by the
+  # consumer (mrrlin will make this operator-configurable in a later slice);
+  # both are registered here so either can serve.
   - id: codex
     provider: openai
     model: gpt-5.2-codex
@@ -355,3 +362,13 @@ agents:
     usage_url: "https://platform.openai.com/usage"
     transports:
       edit_exists: "codex exec"
+
+  - id: claude
+    provider: anthropic
+    model: claude-opus-4-7
+    tier: strong
+    tags: []
+    auth: "cli:claude"
+    usage_url: "https://console.anthropic.com/settings/usage"
+    transports:
+      edit_exists: "claude --print"
