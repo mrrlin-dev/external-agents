@@ -4,7 +4,7 @@
 // that need to reach the registry from bash without speaking MCP JSON-RPC.
 //
 // Subcommands:
-//   pick [--tier T] [--n N] [--min-distinct-providers M] [--exclude ID,ID]
+//   pick [--tier T] [--n N] [--min-distinct-providers M] [--exclude ID,ID] [--exclude-providers P,P]
 //     → prints one agent id per line (up to N), or exits 3 if no candidates
 //   dispatch <agent-id> [--pro] "<prompt>"
 //     → runs the agent, prints stdout of the child, exits with:
@@ -69,6 +69,11 @@ function cmdPick(flags) {
   if (flags.tier) filter.tier = flags.tier;
   if (flags.tags) filter.tags = String(flags.tags).split(",").filter(Boolean);
   if (flags.exclude) filter.exclude_ids = String(flags.exclude).split(",").filter(Boolean);
+  if (flags["exclude-providers"]) {
+    const providers = new Set(String(flags["exclude-providers"]).split(",").filter(Boolean));
+    const ids = REGISTRY.agents.filter((a) => providers.has(a.provider)).map((a) => a.id);
+    filter.exclude_ids = [...(filter.exclude_ids || []), ...ids];
+  }
   if (flags.transport) filter.transport = flags.transport;
   const picked = pickAgents(REGISTRY, readState(), {
     n,
@@ -193,7 +198,7 @@ switch (subcmd) {
   case "--help":
   case undefined:
     console.error(`external-agents CLI — subcommands:
-  pick [--tier T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--tags a,b] [--transport generate_new|edit_exists]
+  pick [--tier T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists]
   dispatch <agent-id> [--pro] [--transport generate_new|edit_exists] "<prompt>"
   status [--json]
   probe <agent-id>
