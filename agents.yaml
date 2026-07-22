@@ -366,6 +366,9 @@ agents:
   # dispatch that failed. Which of the two is "primary" is decided by the
   # consumer (mrrlin will make this operator-configurable in a later slice);
   # both are registered here so either can serve.
+  # Codex family — subscription-backed, two tiers so `escalate_to_pro` has a
+  # target. `codex` (default weak-strong) works on every Codex plan; `codex-pro`
+  # picks the strongest model on your plan via `-m gpt-5.4-codex`.
   - id: codex
     provider: openai
     model: gpt-5.2-codex
@@ -376,7 +379,20 @@ agents:
     transports:
       edit_exists: "codex exec"
 
-  - id: claude
+  - id: codex-pro
+    provider: openai
+    model: gpt-5.4-codex
+    tier: strong
+    tags: [reasoning]
+    auth: "cli:codex"
+    usage_url: "https://platform.openai.com/usage"
+    transports:
+      edit_exists: "codex exec -m gpt-5.4-codex"
+
+  # Claude family — subscription-backed, two tiers. `claude-opus` is the
+  # strongest, `claude-sonnet` (below) is weak-tier for the atomic-executor
+  # pool + `/consensus` terminal picks.
+  - id: claude-opus
     provider: anthropic
     model: claude-opus-4-7
     tier: strong
@@ -384,7 +400,7 @@ agents:
     auth: "cli:claude"
     usage_url: "https://console.anthropic.com/settings/usage"
     transports:
-      edit_exists: "claude --print"
+      edit_exists: "claude --print --model claude-opus-4-7"
 
   # Weak-tier Sonnet — same Claude subscription, cheaper model. Included in
   # default `pick_agents` runs (weak filter passes it), so `dispatch` /
