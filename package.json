@@ -1,0 +1,58 @@
+{
+  "name": "@mrrlin-dev/external-agents",
+  "version": "0.1.0",
+  "description": "One MCP server for every LLM you talk to — direct-API dispatcher across Gemini, DeepSeek, Groq, OpenRouter, Cerebras, and more. Part of mrrlin.com.",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "external-agents": "./cli.js",
+    "external-agents-mcp": "./server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "ui": "node ui.js",
+    "cli": "node cli.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "llm",
+    "aider",
+    "gemini",
+    "deepseek",
+    "groq",
+    "openrouter",
+    "cerebras",
+    "agent",
+    "dispatcher",
+    "orchestration",
+    "mrrlin"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "author": "mrrlin-dev",
+  "license": "MIT",
+  "homepage": "https://mrrlin.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrrlin-dev/external-agents.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mrrlin-dev/external-agents/issues"
+  },
+  "files": [
+    "server.js",
+    "cli.js",
+    "ui.js",
+    "lib/",
+    "agents.yaml",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "js-yaml": "^4"
+  }
+}

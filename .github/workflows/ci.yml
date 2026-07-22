@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Syntax check
+        run: |
+          node -c server.js
+          node -c cli.js
+          node -c ui.js
+          node -c lib/registry.js
+          node -c lib/state.js
+          node -c lib/dispatch.js
+          node -c lib/pick.js
+      - name: Registry loads
+        run: node -e 'import("./lib/registry.js").then(m => { const r = m.loadRegistry("./agents.yaml"); if (!r.agents.length) throw new Error("empty registry"); console.log(`loaded ${r.agents.length} agents`); })'
+      - name: MCP server starts (2s smoke)
+        run: |
+          timeout 3 node server.js &
+          BG=$!
+          sleep 2
+          if kill -0 $BG 2>/dev/null; then
+            echo "✓ server alive after 2s"
+            kill $BG 2>/dev/null || true
+          else
+            echo "✗ server exited early" >&2
+            exit 1
+          fi

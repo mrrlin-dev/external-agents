@@ -1,0 +1,27 @@
+# deps
+node_modules/
+package-lock.json
+
+# node/npm
+.npm
+.DS_Store
+*.log
+
+# local dev
+*.swp
+*.swo
+.env
+.env.*
+!.env.example
+
+# state (operator-scoped, not committed)
+.aider*
+.local-state/
+
+# editors
+.vscode/
+.idea/
+
+# tmp
+tmp/
+*.tmp
