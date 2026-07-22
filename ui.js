@@ -313,20 +313,28 @@ function renderUnlock(agents) {
     // Ollama-cloud uses its own CLI ('ollama' — no API key input needed),
     // so its row skips the input + Save and just shows the signup/download link.
     const hasEnvInput = !!m.env && !m.env.startsWith("(");
+    // Shared button metrics so Save + Get-free-key line up pixel-perfect.
+    // 32px total height (7px vertical padding + 14px font + border), 13px font,
+    // min-width so short-text buttons ("Save") do not feel dwarfed next to
+    // long-text ones ("Get free key ↗").
+    const btnStyle = 'display:inline-flex;align-items:center;justify-content:center;height:32px;box-sizing:border-box;padding:0 14px;min-width:110px;font-size:13px;font-weight:600;border-radius:4px;text-decoration:none;white-space:nowrap;border:1px solid transparent;cursor:pointer;';
+    const saveStyle   = btnStyle + 'background:#4a90e2;color:#fff;border-color:#3878c0;';
+    const signupStyle = btnStyle + 'background:#4a8;color:#fff;';
+    const inputStyle  = 'flex:1;min-width:180px;height:32px;box-sizing:border-box;padding:0 10px;border:1px solid #d4b96b;border-radius:4px;font:inherit;';
+
     const keyInput = hasEnvInput
       ? '<input id="k-' + m.env + '" type="password" placeholder="paste ' + m.env + ' here" ' +
-        'style="flex:1;min-width:180px;padding:5px 8px;border:1px solid #d4b96b;border-radius:4px;font:inherit;" ' +
-        'onkeydown="if(event.key===\\'Enter\\')saveKey(\\'' + m.env + '\\')">' +
-        '<button class="primary" onclick="saveKey(\\'' + m.env + '\\')">Save</button>' +
+        'style="' + inputStyle + '" onkeydown="if(event.key===\\'Enter\\')saveKey(\\'' + m.env + '\\')">' +
+        '<button onclick="saveKey(\\'' + m.env + '\\')" style="' + saveStyle + '">Save</button>' +
         '<span id="s-' + m.env + '" class="status" style="font-size:12px;"></span>'
       : '<span style="color:#8a7532;font-size:12px;">' + m.env + '</span>';
     return '<div class="row" style="display:grid;grid-template-columns:180px 1fr auto;gap:10px 16px;align-items:start;padding:12px 0;border-top:1px solid #e6d78e;">' +
       '<div><div class="prov">' + m.label + '</div>' +
       '<div style="font-size:11px;color:#8a7532">+' + count + ' model' + (count>1?"s":"") + ' waiting</div></div>' +
       '<div><div class="desc" style="margin-bottom:6px;">' + m.pitch + '</div>' +
-      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' + keyInput + '</div></div>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' + keyInput + '</div></div>' +
       '<a class="signup" href="' + m.signup + '" target="_blank" rel="noopener" ' +
-      'style="align-self:center;padding:6px 12px;background:#4a8;color:#fff;text-decoration:none;border-radius:4px;font-size:13px;white-space:nowrap;">Get free key ↗</a>' +
+      'style="align-self:center;' + signupStyle + '">Get free key ↗</a>' +
       '</div>';
   }).join("");
   box.innerHTML =
