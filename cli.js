@@ -208,6 +208,35 @@ async function cmdSetCredential(args) {
   }
 }
 
+// `external-agents init` — one-shot setup: launch the UI AND open the default
+// browser to it. Meant for the "just installed the package, what now" moment.
+// The UI process stays foregrounded (Ctrl-C to quit) so the operator can watch
+// key-save events land in stderr.
+function cmdInit(flags) {
+  const port = Number(flags.port) || 4711;
+  const host = String(flags.host || "127.0.0.1");
+  const url  = `http://${host}:${port}/`;
+  const opener =
+    process.platform === "darwin" ? "open" :
+    process.platform === "win32"  ? "cmd" :
+    "xdg-open";
+  const openerArgs = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  // Spawn UI first, then open browser after it starts listening.
+  const uiPath = path.join(path.dirname(new URL(import.meta.url).pathname), "ui.js");
+  const env = { ...process.env, EXTERNAL_AGENTS_UI_PORT: String(port), EXTERNAL_AGENTS_UI_HOST: host };
+  const child = spawn(process.execPath, [uiPath], { stdio: "inherit", env });
+  // Give the UI ~600ms to bind before opening the browser (loopback listen is
+  // usually instantaneous but we do not want the browser to open on a not-yet-
+  // bound port).
+  setTimeout(() => {
+    try { spawn(opener, openerArgs, { stdio: "ignore", detached: true }).unref(); }
+    catch { /* browser open is best-effort; UI is still up on ${url} */ }
+  }, 600);
+  child.on("exit", (code) => process.exit(code ?? 0));
+  process.on("SIGINT",  () => child.kill("SIGINT"));
+  process.on("SIGTERM", () => child.kill("SIGTERM"));
+}
+
 // `external-agents ui` — spawn the loopback dashboard (ui.js) inline so the CLI
 // stays the single entry point. ui.js runs its server at top level and blocks;
 // we spawn it as a child so cli.js does not need to import server-lifecycle code
@@ -234,6 +263,7 @@ switch (subcmd) {
   case "probe":    cmdProbe(args); break;
   case "stats":    cmdStats(flags); break;
   case "ui":       cmdUi(flags); break;
+  case "init":     cmdInit(flags); break;
   case "set-credential": await cmdSetCredential(args); break;
   case "help":
   case "--help":
@@ -245,6 +275,7 @@ switch (subcmd) {
   probe <agent-id>
   stats [--since ISO] [--json]
   ui [--port N] [--host H]        # local dashboard for setting keys + inspecting state (default http://127.0.0.1:4711)
+  init [--port N] [--host H]      # launch UI AND open it in the default browser — the "just installed" one-shot
   set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin`);
     process.exit(subcmd ? 0 : 2);
   default: die(`unknown subcommand: ${subcmd}`, 2);

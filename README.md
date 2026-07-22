@@ -1,12 +1,17 @@
 # @mrrlin-dev/external-agents
 
+[![Install to Claude Code](https://img.shields.io/badge/Install_to-Claude_Code-4a90e2?style=for-the-badge&logo=anthropic&logoColor=white)](#claude-code)
+[![Install to Codex](https://img.shields.io/badge/Install_to-Codex-24292f?style=for-the-badge&logo=openai&logoColor=white)](#codex)
+[![One-command install](https://img.shields.io/badge/curl_%7C_bash-one_command-4a8?style=for-the-badge)](#one-command-install)
+[![npm](https://img.shields.io/npm/v/@mrrlin-dev/external-agents?style=for-the-badge)](https://www.npmjs.com/package/@mrrlin-dev/external-agents)
+
 **Cut your LLM bill by 10-100x by fanning work across free tiers of a dozen providers.**
 
 `external-agents` is an MCP server + CLI that routes work from your primary coding agent (Claude Code, Codex, Cursor) to a **pool of 20+ free-tier LLMs** — Gemini, Groq, Cerebras, OpenRouter :free, Z.ai, Ollama Cloud, and paid tiers of DeepSeek — via one clean surface: round-robin, cooldown-aware, auto-fallback on 429, with a local dashboard for setting keys and tracking usage.
 
 **The core value is economic.** You have separate free-tier quotas at Google + Groq + Cerebras + OpenRouter + Z.ai. `external-agents` treats them as **one pool of tokens** and dispatches to the next healthy bucket. What used to be one 30-req/min Gemini limit is now ~150 req/min across five providers, all at $0 — enough to run entire agentic loops (implementations, reviews, refactors) that would burn $10-100/day on a single paid model.
 
-**It's also the substrate for LLM-consensus** — the "ask N different models the same question, adjudicate" pattern popularized in [LLM-as-a-Judge](https://arxiv.org/abs/2306.05685) work and echoed frequently by [Andrej Karpathy](https://x.com/karpathy) as an "LLM Council" idea: an ensemble of frontier models routinely beats any single one. `pick_agents` gives you N distinct-provider picks in one call, so a "fleet of subagents deliberating in parallel" is one primitive away. **[Mrrlin](https://mrrlin.com) uses exactly this** — its consensus gate resolves two dynamic terminal reviewers from this pool every round, so every design and every diff gets stress-tested by different model families before it merges.
+**It's also the substrate for LLM-consensus** — the "ask N different models the same question, adjudicate" pattern — see [karpathy/llm-council](https://github.com/karpathy/llm-council) ("LLM Council works together to answer your hardest questions") and the broader [LLM-as-a-Judge](https://arxiv.org/abs/2306.05685) literature. An ensemble of frontier models routinely beats any single one. `pick_agents` gives you N distinct-provider picks in one call, so a "fleet of subagents deliberating in parallel" is one primitive away. **[Mrrlin](https://mrrlin.com) uses exactly this** — its consensus gate resolves two dynamic terminal reviewers from this pool every round, so every design and every diff gets stress-tested by different model families before it merges.
 
 Beyond savings and consensus, you also get the zoo-manager niceties: per-provider auth, cooldowns keyed to the *provider's* reset time (not a made-up default), quota tracking in a local JSONL, and a config-free `status` view of who is healthy right now.
 
@@ -34,7 +39,7 @@ The net effect for us has been **10-100x reduction** in per-task cost for the at
 
 ### LLM-consensus — the multi-model panel, made trivial
 
-Ask several distinct LLMs the same thing and pick the majority answer — an ensemble of frontier models routinely beats any single one. This pattern shows up as [LLM-as-a-Judge](https://arxiv.org/abs/2306.05685) benchmarks, "LLM Council" experiments, [self-consistency decoding](https://arxiv.org/abs/2203.11171), and Karpathy's [recurring observation](https://x.com/karpathy) that mixed panels are strong. But it works only if you can (a) reach N different providers cheaply and (b) fan out in parallel. `external-agents` gives you both:
+Ask several distinct LLMs the same thing and pick the majority answer — an ensemble of frontier models routinely beats any single one. This pattern shows up as [karpathy/llm-council](https://github.com/karpathy/llm-council) (Karpathy's own experimental repo — LLM Council answering hard questions collectively), [LLM-as-a-Judge](https://arxiv.org/abs/2306.05685) benchmarks, and [self-consistency decoding](https://arxiv.org/abs/2203.11171). But it works only if you can (a) reach N different providers cheaply and (b) fan out in parallel. `external-agents` gives you both:
 
 ```
 ids  = pick_agents({ n: 3, min_distinct_providers: 3, exclude_ids: [primary] })
@@ -50,9 +55,19 @@ You don't need Mrrlin's gate to use the pattern — the primitives are unopinion
 
 ## Install
 
+### One-command install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mrrlin-dev/external-agents/main/install.sh | bash
+```
+
+The script (a) `npm i -g`s the package, (b) registers the MCP server with every supported host on your PATH (Claude Code, Codex — missing hosts are skipped, not fatal), then (c) launches the local dashboard so you can paste free-tier API keys inline. Read [`install.sh`](./install.sh) before piping if that flow makes you nervous — it's ~35 lines.
+
+### Manual
+
 ```bash
 npm install -g @mrrlin-dev/external-agents
-external-agents --version
+external-agents init           # opens http://127.0.0.1:4711 in your browser
 ```
 
 Requires Node ≥ 20. Works on macOS and Linux. Windows via WSL.
@@ -223,9 +238,12 @@ Full schema documented in [docs/registry-schema.md](docs/registry-schema.md).
 ## Local UI — setting up API keys the easy way
 
 ```bash
-external-agents ui
-# → external-agents ui: http://127.0.0.1:4711
+external-agents init      # launches UI + opens the browser (recommended for first-time setup)
+# or
+external-agents ui        # launches UI only; open http://127.0.0.1:4711 yourself
 ```
+
+![external-agents dashboard walkthrough — banner shows 3 free-tier providers waiting; paste key, click Save, get confirmation](docs/ui-walkthrough.gif)
 
 Loopback dashboard (never exposed to the network). Two things you want it for:
 
@@ -275,7 +293,6 @@ All three paths write to the same `~/.local/state/external-agents/keys.env` — 
 Total time: ~3 minutes. Result: 7 more free-tier agents active in `pick`.
 ```
 
-_(TODO: an animated GIF walkthrough belongs here — see [issue #<TBD>](https://github.com/mrrlin-dev/external-agents/issues) for the recording task.)_
 
 ---
 
