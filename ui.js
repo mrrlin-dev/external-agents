@@ -768,11 +768,11 @@ function renderRows(agents, statsByAgent) {
       '<td>' + (a.provider || "—") + '</td>' +
       '<td class="tier">' + (a.tier || "—") + '</td>' +
       '<td>' + tags + '</td>' +
-      // State cell: pill hugs its text (state.state class already handles
-      // white-space:nowrap on the td). The full `note` from probe/audit goes
+      // State cell: pill hugs its text (state class already handles
+      // white-space:nowrap on the td). The full note from probe/audit goes
       // into the pill's title attribute — hover to read without taking row space.
-      // `.last-err` (from stats.last_error) still renders inline below the pill
-      // for failed dispatches, truncated + tooltipped in its own CSS block.
+      // The last-err span (from stats.last_error) still renders inline below
+      // the pill for failed dispatches, truncated + tooltipped in its own CSS.
       '<td class="state">' +
         '<span class="pill ' + (a.state || "healthy") + '"' +
           (a.note ? ' title="' + esc(a.note) + '"' : '') +
