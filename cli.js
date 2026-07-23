@@ -323,9 +323,9 @@ async function cmdAudit(flags) {
           : v.status === 429         ? "rate_limited"
           : "errored_transient";
         const note =
-          v.ok                       ? `verified (${v.latencyMs}ms)`
-          : v.modelUnavailable       ? `provider says model does not exist (HTTP ${v.status || "?"})`
-          : (v.hint || `HTTP ${v.status || "?"}`);
+          v.ok            ? `verified (${v.latencyMs}ms)`
+          : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
+          : `HTTP ${v.status || "?"}`;
         // Deep-merge so probe metadata (last_used_at, enabled flag) survives.
         const existing = readState()[entry.id] || {};
         writeState({

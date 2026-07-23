@@ -199,9 +199,9 @@ agents:
         model: llama-3.3-70b-versatile
       edit_exists: "aider --model groq/llama-3.3-70b-versatile"
 
-  - id: groq-deepseek-r1-distill
+  - id: groq-gpt-oss-120b
     provider: groq
-    model: deepseek-r1-distill-llama-70b
+    model: openai/gpt-oss-120b
     quota_scope: shared
     tier: strong
     tags: [quick, reasoning, free]
@@ -211,64 +211,98 @@ agents:
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
-        model: deepseek-r1-distill-llama-70b
-      edit_exists: "aider --model groq/deepseek-r1-distill-llama-70b"
+        model: openai/gpt-oss-120b
+      edit_exists: "aider --model groq/openai/gpt-oss-120b"
 
-  # ============ OpenRouter — 50+ free models with :free tag ============
-  - id: openrouter-deepseek-r1-free
-    provider: openrouter
-    model: deepseek/deepseek-r1-distill-llama-70b:free
-    quota_scope: shared
-    tier: strong
-    tags: [quick, reasoning, free]
-    auth: "env:OPENROUTER_API_KEY"
-    usage_url: "https://openrouter.ai/settings/credits"
-    transports:
-      generate_new:
-        url: "https://openrouter.ai/api/v1/chat/completions"
-        env: OPENROUTER_API_KEY
-        model: deepseek/deepseek-r1-distill-llama-70b:free
-      edit_exists: "aider --model openrouter/deepseek/deepseek-r1-distill-llama-70b:free"
-
-  - id: openrouter-qwen-coder-32b-free
-    provider: openrouter
-    model: qwen/qwen-2.5-coder-32b-instruct:free
+  - id: groq-gpt-oss-20b
+    provider: groq
+    model: openai/gpt-oss-20b
     quota_scope: shared
     tier: weak
-    tags: [quick, coding, free]
+    tags: [quick, fast, free]
+    auth: "env:GROQ_API_KEY"
+    usage_url: "https://console.groq.com/settings/usage"
+    transports:
+      generate_new:
+        url: "https://api.groq.com/openai/v1/chat/completions"
+        env: GROQ_API_KEY
+        model: openai/gpt-oss-20b
+      edit_exists: "aider --model groq/openai/gpt-oss-20b"
+
+  # ============ OpenRouter — 50+ free models with :free tag ============
+  # NB: OpenRouter rotates its :free catalog often — models come and go.
+  # If any entry here 404s, run `external-agents audit --provider openrouter`
+  # then swap in a current id (`/api/v1/models` returns the live list).
+  - id: openrouter-nemotron-ultra-free
+    provider: openrouter
+    model: nvidia/nemotron-3-ultra-550b-a55b:free
+    quota_scope: shared
+    tier: strong
+    tags: [reasoning, free]
     auth: "env:OPENROUTER_API_KEY"
-    preference_order: 15
     usage_url: "https://openrouter.ai/settings/credits"
     transports:
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
-        model: qwen/qwen-2.5-coder-32b-instruct:free
-      edit_exists: "aider --model openrouter/qwen/qwen-2.5-coder-32b-instruct:free"
+        model: nvidia/nemotron-3-ultra-550b-a55b:free
+      edit_exists: "aider --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
 
-  - id: openrouter-llama-3.3-70b-free
+  - id: openrouter-gemma-4-31b-free
     provider: openrouter
-    model: meta-llama/llama-3.3-70b-instruct:free
+    model: google/gemma-4-31b-it:free
     quota_scope: shared
     tier: weak
     tags: [quick, free]
     auth: "env:OPENROUTER_API_KEY"
-    preference_order: 15
     usage_url: "https://openrouter.ai/settings/credits"
     transports:
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
-        model: meta-llama/llama-3.3-70b-instruct:free
-      edit_exists: "aider --model openrouter/meta-llama/llama-3.3-70b-instruct:free"
+        model: google/gemma-4-31b-it:free
+      edit_exists: "aider --model openrouter/google/gemma-4-31b-it:free"
 
-  # ============ Cerebras — ~2000 tok/s, 30 rpm free ============
-  - id: cerebras-llama-3.3-70b
-    provider: cerebras
-    model: llama3.3-70b
+  - id: openrouter-gpt-oss-20b-free
+    provider: openrouter
+    model: openai/gpt-oss-20b:free
     quota_scope: shared
     tier: weak
     tags: [quick, fast, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/settings/credits"
+    transports:
+      generate_new:
+        url: "https://openrouter.ai/api/v1/chat/completions"
+        env: OPENROUTER_API_KEY
+        model: openai/gpt-oss-20b:free
+      edit_exists: "aider --model openrouter/openai/gpt-oss-20b:free"
+
+  - id: openrouter-north-mini-code-free
+    provider: openrouter
+    model: cohere/north-mini-code:free
+    quota_scope: shared
+    tier: weak
+    tags: [coding, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/settings/credits"
+    transports:
+      generate_new:
+        url: "https://openrouter.ai/api/v1/chat/completions"
+        env: OPENROUTER_API_KEY
+        model: cohere/north-mini-code:free
+      edit_exists: "aider --model openrouter/cohere/north-mini-code:free"
+
+  # ============ Cerebras — ~2000 tok/s, 30 rpm free ============
+  # Model list verified against Cerebras /v1/models on 2026-07-23. The
+  # previous entries (llama3.3-70b, qwen-3-coder-480b) were retired by
+  # Cerebras and returned 404 for months.
+  - id: cerebras-gpt-oss-120b
+    provider: cerebras
+    model: gpt-oss-120b
+    quota_scope: shared
+    tier: strong
+    tags: [quick, fast, reasoning, free]
     auth: "env:CEREBRAS_API_KEY"
     preference_order: 7
     usage_url: "https://cloud.cerebras.ai/platform/keys"
@@ -276,23 +310,23 @@ agents:
       generate_new:
         url: "https://api.cerebras.ai/v1/chat/completions"
         env: CEREBRAS_API_KEY
-        model: llama3.3-70b
-      edit_exists: "aider --model cerebras/llama3.3-70b"
+        model: gpt-oss-120b
+      edit_exists: "aider --model cerebras/gpt-oss-120b"
 
-  - id: cerebras-qwen-3-coder-480b
+  - id: cerebras-zai-glm-4.7
     provider: cerebras
-    model: qwen-3-coder-480b
+    model: zai-glm-4.7
     quota_scope: shared
-    tier: strong
-    tags: [coding, free]
+    tier: weak
+    tags: [quick, fast, free]
     auth: "env:CEREBRAS_API_KEY"
     usage_url: "https://cloud.cerebras.ai/platform/keys"
     transports:
       generate_new:
         url: "https://api.cerebras.ai/v1/chat/completions"
         env: CEREBRAS_API_KEY
-        model: qwen-3-coder-480b
-      edit_exists: "aider --model cerebras/qwen-3-coder-480b"
+        model: zai-glm-4.7
+      edit_exists: "aider --model cerebras/zai-glm-4.7"
 
   # ============ Ollama Cloud (via localhost daemon → cloud proxy) ============
   - id: ollama-gpt-oss-20b
