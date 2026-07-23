@@ -766,10 +766,14 @@ function renderRows(agents, statsByAgent) {
         ' onchange="toggleAgent(\\'' + a.id + '\\', this.checked)"><span class="slider"></span>' +
       '</label></td>' +
       '<td class="id">' + esc(a.id) +
-        // Show model sub-line ONLY when it adds information — id/model can
-        // literally be the same string, or the entry uses model="default"
-        // (Codex "let the CLI pick"), in which case the second line is noise.
-        (a.model && a.model !== a.id && a.model !== "default"
+        // Show model sub-line whenever it adds information. Skip only when
+        // id === model (pure duplication). model === "default" (Codex "let
+        // the CLI pick whatever the account exposes") still gets a sub-line —
+        // just a static explainer instead of a name, since the actual
+        // resolved model varies by account/plan and can't be hardcoded here.
+        (a.model === "default"
+          ? '<span class="sub" title="Resolves to whatever your Codex plan exposes — run \'codex exec &quot;what model are you?&quot;\' to check">auto (account-picked)</span>'
+          : a.model && a.model !== a.id
           ? '<span class="sub">' + esc(a.model) + '</span>'
           : '') +
       '</td>' +

@@ -395,6 +395,12 @@ agents:
   # explicit entry plus the `codex` default (which lets the CLI choose whatever
   # the operator's plan actually exposes). Users on an OpenAI API-key plan can
   # add the -codex tiers back via `external-agents add-model`.
+  #
+  # `model: default` is intentionally NOT a real model id — it means "whatever
+  # `codex exec` resolves to on this account", which varies by plan/tier and
+  # WILL drift over time. As of 2026-07-23 on a ChatGPT-plan account it
+  # resolved to "GPT-5" (confirmed by asking it directly). Don't hardcode that
+  # in the UI — it's a snapshot, not a contract.
   - id: codex
     provider: openai
     model: default
