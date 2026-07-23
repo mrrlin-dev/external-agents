@@ -547,7 +547,7 @@ const PAGE = `<!doctype html>
         <th data-sort="state">State</th>
         <th data-sort="calls" class="num">Calls 24h</th>
         <th data-sort="tokens" class="num">Tokens 24h</th>
-        <th data-sort="speed" class="num">Speed</th>
+        <th data-sort="success" class="num">Success</th>
         <th data-sort="last_used_at">Last used</th>
         <th></th>
       </tr></thead>
@@ -622,10 +622,11 @@ function sortAgents(agents, statsByAgent) {
     if (key === "calls")   { av = (statsByAgent[a.id]?.count) || 0;      bv = (statsByAgent[b.id]?.count) || 0; }
     else if (key === "tokens") { av = ((statsByAgent[a.id]?.tokens_in) || 0) + ((statsByAgent[a.id]?.tokens_out) || 0);
                                  bv = ((statsByAgent[b.id]?.tokens_in) || 0) + ((statsByAgent[b.id]?.tokens_out) || 0); }
-    else if (key === "speed") {
+    else if (key === "success") {
       const sa = statsByAgent[a.id]; const sb = statsByAgent[b.id];
-      av = sa && sa.duration_ms > 0 ? (sa.tokens_out || 0) / (sa.duration_ms / 1000) : 0;
-      bv = sb && sb.duration_ms > 0 ? (sb.tokens_out || 0) / (sb.duration_ms / 1000) : 0;
+      // Success ratio 0..1; agents with 0 calls sort as -1 (below the busy ones)
+      av = sa && sa.count > 0 ? (sa.outcomes?.success || 0) / sa.count : -1;
+      bv = sb && sb.count > 0 ? (sb.outcomes?.success || 0) / sb.count : -1;
     }
     else if (key === "last_used_at") { av = a.last_used_at || 0; bv = b.last_used_at || 0; }
     else if (key === "tags") { av = (a.tags || []).join(","); bv = (b.tags || []).join(","); }
@@ -642,7 +643,7 @@ function sortAgents(agents, statsByAgent) {
 }
 function setSort(key) {
   if (sortKey === key) sortDir = sortDir === "asc" ? "desc" : "asc";
-  else { sortKey = key; sortDir = (key === "calls" || key === "tokens" || key === "speed" || key === "last_used_at") ? "desc" : "asc"; }
+  else { sortKey = key; sortDir = (key === "calls" || key === "tokens" || key === "success" || key === "last_used_at") ? "desc" : "asc"; }
   localStorage.setItem("sort_key", sortKey);
   localStorage.setItem("sort_dir", sortDir);
   refresh();
@@ -676,8 +677,18 @@ function renderRows(agents, statsByAgent) {
       : '';
     const calls = s.count || 0;
     const tokens = (s.tokens_in || 0) + (s.tokens_out || 0);
-    const tokPerSec = s.duration_ms > 0 && s.tokens_out ? (s.tokens_out / (s.duration_ms / 1000)) : 0;
-    const speedStr = tokPerSec > 0 ? fmtNum(Math.round(tokPerSec)) + " t/s" : "—";
+    const okN = s.outcomes?.success || 0;
+    const failN = calls - okN;
+    // Color-code: all-ok → accent, mixed → warn, all-fail → err. Zero calls
+    // stays dim. String format is "N ok · M fail" to keep both numbers visible.
+    let successHtml = '<span class="zero">—</span>';
+    if (calls > 0) {
+      const ratio = okN / calls;
+      const color = ratio === 1 ? "var(--accent)" : ratio === 0 ? "var(--err)" : "var(--warn)";
+      successHtml =
+        '<span style="color:' + color + ';font-weight:600;">' + okN + '</span>' +
+        (failN > 0 ? '<span style="color:var(--text-3);"> / ' + failN + ' fail</span>' : '');
+    }
     const toggleId = 'tg-' + a.id.replace(/[^a-z0-9]/gi, '_');
     tr.innerHTML =
       '<td><label class="switch">' +
@@ -693,7 +704,7 @@ function renderRows(agents, statsByAgent) {
       '<td><span class="pill ' + (a.state || "healthy") + '">' + (a.state || "healthy") + '</span>' + errCell + '</td>' +
       '<td class="num ' + (calls === 0 ? 'zero' : '') + '">' + (calls || "—") + '</td>' +
       '<td class="num ' + (tokens === 0 ? 'zero' : '') + '">' + (tokens > 0 ? fmtNum(tokens) : "—") + '</td>' +
-      '<td class="num ' + (tokPerSec === 0 ? 'zero' : '') + '">' + speedStr + '</td>' +
+      '<td class="num">' + successHtml + '</td>' +
       '<td class="time">' + fmtTime(a.last_used_at) + '</td>' +
       '<td>' + (a.usage_url
         ? '<a href="' + a.usage_url + '" target="_blank" rel="noopener">usage ↗</a>'

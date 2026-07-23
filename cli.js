@@ -14,10 +14,10 @@
 //        {"outcome":..., "exit_code":..., "duration_ms":..., "workdir":...}
 //   status [--json]  → table of every registry entry with state (or JSON)
 //   probe <agent-id> → probes one agent, prints new state JSON
-import { loadRegistry, OVERRIDE_PATH, LOCAL_PATH } from "./lib/registry.js";
+import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
-import { runAny, resolveEscalation, parseExhaustionSignal, getStats } from "./lib/dispatch.js";
+import { runAny, resolveEscalation, parseExhaustionSignal, getStats, verifyCredential } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
 import fs from "node:fs";
@@ -259,34 +259,88 @@ function cmdInit(flags) {
 // stays the single entry point. ui.js runs its server at top level and blocks;
 // we spawn it as a child so cli.js does not need to import server-lifecycle code
 // and so Ctrl-C from the terminal terminates the child cleanly.
-// Pull the latest bundled `agents.yaml` from GitHub main and store as an override.
-// The override is applied on top of the bundled registry at load time (same-id
-// replaces, new-id appends), so operators get new models without waiting for a
-// package release. Explicit — never runs on startup or dispatch.
-async function cmdRefresh(flags) {
-  const url = flags.url || "https://raw.githubusercontent.com/mrrlin-dev/external-agents/main/agents.yaml";
-  process.stderr.write(`external-agents refresh: pulling ${url}\n`);
-  let text;
-  try {
-    const r = await fetch(url);
-    if (!r.ok) die(`refresh: HTTP ${r.status} ${r.statusText}`, 1);
-    text = await r.text();
-  } catch (e) {
-    die(`refresh: fetch failed — ${e.message}`, 1);
+// Force-audit every registry entry with a live API round-trip: prove the key
+// works AND the model actually exists on this account/tier. Writes the outcome
+// to state.json (healthy / needs_auth / model_unavailable / rate_limited) so
+// the UI and pick decisions reflect ground truth. Optional --provider narrows
+// the audit; --json machine-parseable output.
+//
+// This replaces the old `refresh` (which just fetched agents.yaml from
+// GitHub) — we decided the source-of-truth is the bundled registry via
+// `npm i -g @latest`, and what actually matters day-to-day is knowing
+// whether YOUR account still has access to each model.
+async function cmdAudit(flags) {
+  const providerFilter = flags.provider ? String(flags.provider) : null;
+  const asJson = flags.json === true;
+  const entries = REGISTRY.agents.filter((a) =>
+    (!providerFilter || a.provider === providerFilter) &&
+    a.transports?.generate_new?.url
+  );
+  if (entries.length === 0) {
+    die(`audit: no entries match${providerFilter ? ` provider=${providerFilter}` : ""} (only generate_new-capable entries can be audited)`, 3);
   }
-  // Validate BEFORE writing — a broken remote file must not brick the local install.
-  let parsed;
-  try {
-    parsed = yaml.load(text);
-    if (!parsed || !parsed.schema_version || !Array.isArray(parsed.agents)) throw new Error("missing schema_version / agents");
-  } catch (e) {
-    die(`refresh: remote yaml invalid — ${e.message}`, 1);
+
+  const results = [];
+  const started = Date.now();
+  process.stderr.write(`external-agents audit: probing ${entries.length} agent(s)${providerFilter ? ` from ${providerFilter}` : ""}…\n`);
+
+  // Serialize per-provider to respect rate limits (parallelize across providers).
+  const byProvider = {};
+  for (const e of entries) (byProvider[e.provider] ??= []).push(e);
+  const providerBatches = await Promise.all(
+    Object.values(byProvider).map(async (batch) => {
+      const out = [];
+      for (const entry of batch) {
+        const v = await verifyCredential(entry);
+        const outcome =
+          v.ok                       ? "healthy"
+          : v.modelUnavailable       ? "model_unavailable"
+          : v.status === 401 || v.status === 403 ? "needs_auth"
+          : v.status === 429         ? "rate_limited"
+          : "errored_transient";
+        const note =
+          v.ok                       ? `verified (${v.latencyMs}ms)`
+          : v.modelUnavailable       ? `provider says model does not exist (HTTP ${v.status || "?"})`
+          : (v.hint || `HTTP ${v.status || "?"}`);
+        // Deep-merge so probe metadata (last_used_at, enabled flag) survives.
+        const existing = readState()[entry.id] || {};
+        writeState({
+          [entry.id]: {
+            ...existing,
+            state: outcome,
+            note,
+            checked: Math.floor(Date.now() / 1000),
+          },
+        });
+        out.push({ id: entry.id, provider: entry.provider, model: entry.model, outcome, status: v.status || null, note });
+      }
+      return out;
+    })
+  );
+  for (const b of providerBatches) results.push(...b);
+
+  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+  if (asJson) {
+    console.log(JSON.stringify({ elapsed_s: parseFloat(elapsed), results }, null, 2));
+    return;
   }
-  fs.mkdirSync(path.dirname(OVERRIDE_PATH), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(OVERRIDE_PATH, text, { mode: 0o644 });
-  console.log(`refreshed: ${parsed.agents.length} agents from ${url}`);
-  console.log(`wrote:     ${OVERRIDE_PATH}`);
-  console.log(`re-run 'external-agents status' to see any new entries.`);
+  // Human-readable table.
+  const pad = (s, n) => String(s).padEnd(n);
+  const w = { id: 34, provider: 12, outcome: 20, note: 60 };
+  console.log(pad("agent", w.id) + pad("provider", w.provider) + pad("verdict", w.outcome) + "note");
+  console.log("-".repeat(w.id + w.provider + w.outcome + w.note));
+  const sym = { healthy: "✓", needs_auth: "⚠", model_unavailable: "✗", rate_limited: "⏳", errored_transient: "?" };
+  for (const r of results) {
+    console.log(
+      pad(r.id, w.id) +
+      pad(r.provider, w.provider) +
+      pad(`${sym[r.outcome] || "·"} ${r.outcome}`, w.outcome) +
+      String(r.note).slice(0, w.note)
+    );
+  }
+  const counts = results.reduce((acc, r) => (acc[r.outcome] = (acc[r.outcome] || 0) + 1, acc), {});
+  console.log();
+  console.log(`audited ${results.length} in ${elapsed}s — ${Object.entries(counts).map(([k, v]) => `${k}:${v}`).join(", ")}`);
 }
 
 // Append a locally-authored agent to the local overlay yaml. Minimum viable:
@@ -353,7 +407,7 @@ switch (subcmd) {
   case "ui":       cmdUi(flags); break;
   case "init":     cmdInit(flags); break;
   case "set-credential": await cmdSetCredential(args); break;
-  case "refresh":  await cmdRefresh(flags); break;
+  case "audit":    await cmdAudit(flags); break;
   case "add-model": cmdAddModel(flags); break;
   case "help":
   case "--help":
@@ -367,7 +421,7 @@ switch (subcmd) {
   ui [--port N] [--host H] [--no-open]   # local dashboard (auto-opens in browser; use --no-open for SSH/tmux)
   init                                    # alias for 'ui' — kept for backward compat
   set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin
-  refresh [--url URL]              # pull latest agents.yaml from GitHub main (default) or --url; writes overlay to ~/.local/state/external-agents/agents.yaml.override
+  audit [--provider P] [--json]    # force API round-trip for every registry entry (or just PROVIDER); writes state.json outcomes (healthy / needs_auth / model_unavailable / rate_limited)
   add-model --id ID --provider P --url URL --model M --env ENV_VAR [--tier weak|strong] [--tags a,b]
                                    # add a locally-authored agent to ~/.local/state/external-agents/agents.local.yaml (merged over the bundled registry)`);
     process.exit(subcmd ? 0 : 2);

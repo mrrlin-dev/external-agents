@@ -1,6 +1,6 @@
 {
   "name": "@mrrlin-dev/external-agents",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "One MCP server for every LLM you talk to \u2014 direct-API dispatcher across Gemini, DeepSeek, Groq, OpenRouter, Cerebras, and more. Part of mrrlin.com.",
   "type": "module",
   "main": "server.js",

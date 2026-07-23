@@ -70,11 +70,18 @@ Your primary agent (Claude Code, Codex, Cursor) gets these as MCP tools automati
 
 Missing a provider? [Suggest it](https://github.com/mrrlin-dev/external-agents/issues/new?labels=missing-model) — the built-in UI has a form that opens a pre-filled issue.
 
-### Keeping the list fresh
+### Keeping the list honest
 
-New models ship constantly. Two options — nothing forces you to wait for a package release:
+Registry lives inside the package — `npm i -g @mrrlin-dev/external-agents@latest` gets you the curated, tested list. What matters day-to-day is knowing whether **your account** still has access to each model (providers deprecate models, free tiers rotate).
 
-**`external-agents refresh`** — pulls the latest bundled `agents.yaml` from GitHub `main` and writes an override to `~/.local/state/external-agents/agents.yaml.override`. Same-id replaces, new-id appends. Run it monthly (or after seeing a "look, X just launched" tweet).
+**`external-agents audit [--provider P] [--json]`** — force a real API round-trip for every entry that has a `generate_new` transport. Detects three classes of drift in one pass:
+
+- `✓ healthy` — key works, model exists
+- `⚠ needs_auth` — 401 / 403 (paste or refresh the key)
+- `✗ model_unavailable` — key is fine but this specific model isn't on your tier (e.g. Cerebras deprecated a model)
+- `⏳ rate_limited` — hit the free-tier ceiling, will recover
+
+Runs concurrent per provider to respect rate limits. Writes verdicts to `state.json` — the UI and dispatch pick immediately reflect ground truth. `--provider google` narrows to one bucket.
 
 **`external-agents add-model`** — add your own entry (internal endpoint, beta model, whatever) without touching the package:
 ```bash
@@ -86,9 +93,7 @@ external-agents add-model \
   --env GROQ_API_KEY \
   --tags free,fast
 ```
-Writes to `~/.local/state/external-agents/agents.local.yaml`. Layered on top of everything else.
-
-Load order at every startup: **bundled → refresh-override → local-additions**. Each layer replaces same-`id` entries and appends new ones. `npm i -g @mrrlin-dev/external-agents@latest` still works and always ships a curated, tested `agents.yaml` — it's just no longer the only path to a new model.
+Writes to `~/.local/state/external-agents/agents.local.yaml`, layered on top of the bundled registry (same-id replaces, new-id appends).
 
 ---
 
