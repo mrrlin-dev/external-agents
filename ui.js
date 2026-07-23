@@ -188,12 +188,23 @@ const PAGE = `<!doctype html>
     margin: 0; text-wrap: balance;
   }
   .header h1 .dot { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 10px; }
   .header .listening {
     font-family: var(--mono); font-size: 11.5px;
     color: var(--text-2); background: var(--panel);
     padding: 3px 8px; border: 1px solid var(--border-2); border-radius: 4px;
   }
   .header .listening::before { content: "● "; color: var(--accent); }
+  .theme-btn {
+    height: 26px; padding: 0 10px;
+    font-family: var(--sans); font-size: 11.5px; font-weight: 500;
+    color: var(--text-2); background: var(--panel);
+    border: 1px solid var(--border-2); border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .theme-btn:hover { background: var(--panel-2); color: var(--text); }
+  .theme-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .subtitle {
     color: var(--text-2); font-size: 13.5px;
     margin: 0 0 24px 0; max-width: 620px;
@@ -349,11 +360,21 @@ const PAGE = `<!doctype html>
     text-transform: uppercase; letter-spacing: 0.6px;
     color: var(--text-3);
     position: sticky; top: 0; z-index: 1;
+    white-space: nowrap;
   }
+  th[data-sort] { cursor: pointer; user-select: none; }
+  th[data-sort]:hover { color: var(--text); }
+  th[data-sort]::after { content: ""; display: inline-block; width: 0.7em; }
+  th.sort-asc::after  { content: " ▲"; }
+  th.sort-desc::after { content: " ▼"; }
+  th.num, td.num { text-align: right; }
   tbody tr { position: relative; }
   tbody tr:hover td { background: var(--panel-2); }
   td.id { font-family: var(--mono); color: var(--text); }
+  td.id .sub { display: block; color: var(--text-3); font-size: 11px; margin-top: 1px; }
   td.model { font-family: var(--mono); color: var(--text-2); font-size: 12px; }
+  td.num { font-family: var(--mono); font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  td.num.zero { color: var(--text-3); }
   td.tier { font-size: 11.5px; color: var(--text-2); }
   td.time { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; }
   td.note { color: var(--text-2); font-size: 11.5px; max-width: 320px; }
@@ -472,7 +493,10 @@ const PAGE = `<!doctype html>
 <div class="container">
   <header class="header">
     <h1>external-agents<span class="dot">.</span></h1>
-    <span class="listening">${HOST}:${PORT}</span>
+    <div class="header-right">
+      <button id="theme-toggle" class="theme-btn" onclick="cycleTheme()" title="Cycle theme (system / light / dark)"></button>
+      <span class="listening">${HOST}:${PORT}</span>
+    </div>
   </header>
   <p class="subtitle">Local dashboard — inspect the pool, set API keys, watch dispatches settle. Zero data leaves this machine.</p>
 
@@ -510,9 +534,18 @@ const PAGE = `<!doctype html>
 
   <div class="table-wrap">
     <table>
-      <thead><tr>
-        <th>On</th><th>ID</th><th>Provider</th><th>Model</th><th>Tier</th><th>Tags</th>
-        <th>State</th><th>Note</th><th>Last used</th><th></th>
+      <thead><tr id="thead-row">
+        <th>On</th>
+        <th data-sort="id">Model</th>
+        <th data-sort="provider">Provider</th>
+        <th data-sort="tier">Tier</th>
+        <th data-sort="tags">Tags</th>
+        <th data-sort="state">State</th>
+        <th data-sort="calls" class="num">Calls 24h</th>
+        <th data-sort="tokens" class="num">Tokens 24h</th>
+        <th data-sort="speed" class="num">Speed</th>
+        <th data-sort="last_used_at">Last used</th>
+        <th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -570,36 +603,93 @@ function fmtUsd(v) {
   return "$" + Math.round(v);
 }
 
+// Persist sort choice in localStorage so a refresh doesn't reset it.
+let sortKey = localStorage.getItem("sort_key") || "state";
+let sortDir = localStorage.getItem("sort_dir") || "asc";
+const SORT_ORDER = {
+  state: ["healthy", "quota_exhausted", "rate_limited", "needs_auth", "not_installed", "errored_transient"],
+  tier:  ["strong", "weak"],
+};
+function sortAgents(agents, statsByAgent) {
+  const dir = sortDir === "desc" ? -1 : 1;
+  const key = sortKey;
+  return [...agents].sort((a, b) => {
+    let av, bv;
+    if (key === "calls")   { av = (statsByAgent[a.id]?.count) || 0;      bv = (statsByAgent[b.id]?.count) || 0; }
+    else if (key === "tokens") { av = ((statsByAgent[a.id]?.tokens_in) || 0) + ((statsByAgent[a.id]?.tokens_out) || 0);
+                                 bv = ((statsByAgent[b.id]?.tokens_in) || 0) + ((statsByAgent[b.id]?.tokens_out) || 0); }
+    else if (key === "speed") {
+      const sa = statsByAgent[a.id]; const sb = statsByAgent[b.id];
+      av = sa && sa.duration_ms > 0 ? (sa.tokens_out || 0) / (sa.duration_ms / 1000) : 0;
+      bv = sb && sb.duration_ms > 0 ? (sb.tokens_out || 0) / (sb.duration_ms / 1000) : 0;
+    }
+    else if (key === "last_used_at") { av = a.last_used_at || 0; bv = b.last_used_at || 0; }
+    else if (key === "tags") { av = (a.tags || []).join(","); bv = (b.tags || []).join(","); }
+    else if (SORT_ORDER[key]) {
+      const av_ = SORT_ORDER[key].indexOf(a[key] || SORT_ORDER[key][0]);
+      const bv_ = SORT_ORDER[key].indexOf(b[key] || SORT_ORDER[key][0]);
+      av = av_ < 0 ? 999 : av_;
+      bv = bv_ < 0 ? 999 : bv_;
+    }
+    else { av = a[key] || ""; bv = b[key] || ""; }
+    if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
+function setSort(key) {
+  if (sortKey === key) sortDir = sortDir === "asc" ? "desc" : "asc";
+  else { sortKey = key; sortDir = (key === "calls" || key === "tokens" || key === "speed" || key === "last_used_at") ? "desc" : "asc"; }
+  localStorage.setItem("sort_key", sortKey);
+  localStorage.setItem("sort_dir", sortDir);
+  refresh();
+}
+function updateSortIndicators() {
+  document.querySelectorAll("#thead-row th[data-sort]").forEach(th => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.sort === sortKey) th.classList.add("sort-" + sortDir);
+  });
+}
+
 function renderRows(agents, statsByAgent) {
+  updateSortIndicators();
   const tbody = document.getElementById("rows");
   tbody.innerHTML = "";
-  for (const a of agents) {
+  const sorted = sortAgents(agents, statsByAgent || {});
+  for (const a of sorted) {
     const tr = document.createElement("tr");
     const enabled = a.enabled !== false;
     tr.className = (a.state || "healthy") + (enabled ? "" : " disabled");
     const tags = (a.tags || []).map(t =>
       '<span class="badge ' + (t === 'free' ? 'free' : '') + '">' + t + '</span>'
     ).join("");
-    const lastErr = (statsByAgent || {})[a.id]?.last_error;
+    const s = (statsByAgent || {})[a.id] || {};
+    const lastErr = s.last_error;
     const errCell = lastErr && lastErr.error_preview
       ? '<span class="last-err" title="' + esc(lastErr.error_preview) + '">' +
           (lastErr.http_status ? 'HTTP ' + lastErr.http_status + ' · ' : '') +
           esc(lastErr.error_preview) +
         '</span>'
       : '';
+    const calls = s.count || 0;
+    const tokens = (s.tokens_in || 0) + (s.tokens_out || 0);
+    const tokPerSec = s.duration_ms > 0 && s.tokens_out ? (s.tokens_out / (s.duration_ms / 1000)) : 0;
+    const speedStr = tokPerSec > 0 ? fmtNum(Math.round(tokPerSec)) + " t/s" : "—";
     const toggleId = 'tg-' + a.id.replace(/[^a-z0-9]/gi, '_');
     tr.innerHTML =
       '<td><label class="switch">' +
         '<input type="checkbox" id="' + toggleId + '" ' + (enabled ? "checked" : "") +
         ' onchange="toggleAgent(\\'' + a.id + '\\', this.checked)"><span class="slider"></span>' +
       '</label></td>' +
-      '<td class="id">' + a.id + '</td>' +
+      '<td class="id">' + esc(a.id) +
+        '<span class="sub">' + esc(a.model || "—") + '</span>' +
+      '</td>' +
       '<td>' + (a.provider || "—") + '</td>' +
-      '<td class="model">' + (a.model || "—") + '</td>' +
       '<td class="tier">' + (a.tier || "—") + '</td>' +
       '<td>' + tags + '</td>' +
       '<td><span class="pill ' + (a.state || "healthy") + '">' + (a.state || "healthy") + '</span>' + errCell + '</td>' +
-      '<td class="note">' + (a.note || "—") + '</td>' +
+      '<td class="num ' + (calls === 0 ? 'zero' : '') + '">' + (calls || "—") + '</td>' +
+      '<td class="num ' + (tokens === 0 ? 'zero' : '') + '">' + (tokens > 0 ? fmtNum(tokens) : "—") + '</td>' +
+      '<td class="num ' + (tokPerSec === 0 ? 'zero' : '') + '">' + speedStr + '</td>' +
       '<td class="time">' + fmtTime(a.last_used_at) + '</td>' +
       '<td>' + (a.usage_url
         ? '<a href="' + a.usage_url + '" target="_blank" rel="noopener">usage ↗</a>'
@@ -610,6 +700,25 @@ function renderRows(agents, statsByAgent) {
   document.getElementById("stamp").textContent =
     "loaded " + new Date().toLocaleTimeString([], { hour12: false });
 }
+
+// Theme cycle: system → light → dark → system. Applied via data-theme on the
+// root element; CSS tokens redefine per data-theme value. When mode is
+// "system", the attribute is cleared so prefers-color-scheme wins. Persisted
+// in localStorage under key "theme".
+function applyTheme(mode) {
+  const root = document.documentElement;
+  if (mode === "system") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", mode);
+  const label = mode === "system" ? "◐ auto" : mode === "light" ? "☀ light" : "☾ dark";
+  document.getElementById("theme-toggle").textContent = label;
+}
+function cycleTheme() {
+  const cur = localStorage.getItem("theme") || "system";
+  const next = cur === "system" ? "light" : cur === "light" ? "dark" : "system";
+  localStorage.setItem("theme", next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem("theme") || "system");
 function esc(s) {
   return String(s).replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -818,6 +927,9 @@ async function verify(id) {
   await fetch("/api/probe?id=" + encodeURIComponent(id), { method: "POST" });
   await refresh();
 }
+document.querySelectorAll("#thead-row th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => setSort(th.dataset.sort));
+});
 refresh();
 </script>
 </body>
