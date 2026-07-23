@@ -6,12 +6,12 @@
     "url": "https://github.com/mrrlin-dev/external-agents",
     "source": "github"
   },
-  "version": "0.24.0",
+  "version": "0.24.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@mrrlin-dev/external-agents",
-      "version": "0.24.0",
+      "version": "0.24.1",
       "transport": {
         "type": "stdio"
       }
