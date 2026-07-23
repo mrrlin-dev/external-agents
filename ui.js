@@ -4,9 +4,10 @@ import url from "node:url";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadRegistry } from "./lib/registry.js";
+import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
 import { verifyCredential, getStats } from "./lib/dispatch.js";
+import yaml from "js-yaml";
 
 // UI-set persisted keys — MUST use the same file that server.js reads at
 // startup, otherwise the operator's saved key is invisible on next boot.
@@ -36,7 +37,12 @@ function saveKeysFile(kv) {
 }
 
 const __ui_dir = path.dirname(new URL(import.meta.url).pathname);
-const REGISTRY = loadRegistry(path.join(__ui_dir, "agents.yaml"));
+const BUNDLED_YAML = path.join(__ui_dir, "agents.yaml");
+// REGISTRY is a hot-reloading ref — refresh() reads bundled + overlays fresh so
+// UI-side add-model appears without a UI restart. Called by every request that
+// touches the registry surface.
+let REGISTRY = loadRegistry(BUNDLED_YAML);
+function reloadRegistry() { REGISTRY = loadRegistry(BUNDLED_YAML); return REGISTRY; }
 const HOST = process.env.EXTERNAL_AGENTS_UI_HOST || "127.0.0.1";
 const PORT = Number(process.env.EXTERNAL_AGENTS_UI_PORT) || 4711;
 
@@ -82,6 +88,8 @@ function computeStats() {
     tokens_free_24h: tokensFree,
     saved_usd_24h:  savedUsd,
     saved_anchor:   SAVED_ANCHOR_PER_M,
+    // Per-agent aggregates so the UI can surface last_error inline per row.
+    by_agent: s24.by_agent || {},
   };
 }
 
@@ -409,7 +417,51 @@ const PAGE = `<!doctype html>
     font: inherit; background: var(--bg); color: var(--text); outline: none;
   }
   .suggest input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-2); }
-  #suggest-result { margin-top: 10px; font-size: 12px; color: var(--text-2); min-height: 16px; }
+  #suggest-result, #am-result { margin-top: 10px; font-size: 12px; color: var(--text-2); min-height: 16px; }
+  .suggest .grid-form {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    align-items: center;
+  }
+  .suggest .grid-form select {
+    height: 34px; padding: 0 12px; border-radius: 5px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    font: inherit; outline: none;
+  }
+  .suggest .grid-form select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-2); }
+  @media (max-width: 640px) { .suggest .grid-form { grid-template-columns: 1fr; } }
+
+  /* Toggle switch — operator kill switch per row */
+  .switch {
+    position: relative; display: inline-block; width: 34px; height: 18px;
+    vertical-align: middle;
+  }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--border); border-radius: 18px;
+    transition: background 120ms;
+  }
+  .switch .slider::before {
+    content: ""; position: absolute; height: 14px; width: 14px;
+    left: 2px; top: 2px; border-radius: 50%;
+    background: var(--panel); transition: transform 120ms;
+    box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider::before { transform: translateX(16px); }
+  .switch input:focus-visible + .slider { box-shadow: 0 0 0 3px var(--accent-2); }
+  tr.disabled td:not(:first-child) { opacity: 0.5; }
+
+  /* Last-error tooltip — inline note shown under state pill for failed dispatches */
+  .last-err {
+    display: block; font-size: 10.5px; color: var(--err);
+    margin-top: 4px; font-family: var(--mono);
+    max-width: 240px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+    cursor: help;
+  }
 
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
@@ -459,7 +511,7 @@ const PAGE = `<!doctype html>
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th>ID</th><th>Provider</th><th>Model</th><th>Tier</th><th>Tags</th>
+        <th>On</th><th>ID</th><th>Provider</th><th>Model</th><th>Tier</th><th>Tags</th>
         <th>State</th><th>Note</th><th>Last used</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -467,12 +519,28 @@ const PAGE = `<!doctype html>
   </div>
 
   <section class="suggest">
-    <h3>Missing your model?</h3>
-    <p>Opens a pre-filled issue on <a href="https://github.com/mrrlin-dev/external-agents/issues" target="_blank" rel="noopener">mrrlin-dev/external-agents</a>. The maintainer reviews requests weekly.</p>
+    <h3>Add your own model</h3>
+    <p>Wire any OpenAI-compat endpoint into the pool — internal proxy, beta model, custom fine-tune. Stored locally in <code>~/.local/state/external-agents/agents.local.yaml</code>, layered on top of the bundled registry. No package release needed.</p>
+    <div class="grid-form">
+      <input id="am-id" placeholder="id (e.g. kimi-k2-instruct)">
+      <input id="am-provider" placeholder="provider (e.g. groq)">
+      <input id="am-model" placeholder="model (e.g. moonshotai/kimi-k2-instruct)">
+      <input id="am-url" placeholder="url (e.g. https://api.groq.com/openai/v1/chat/completions)">
+      <input id="am-env" placeholder="env var (e.g. GROQ_API_KEY)">
+      <input id="am-tags" placeholder="tags, comma-separated (e.g. free,fast)">
+      <select id="am-tier"><option value="weak">weak</option><option value="strong">strong</option></select>
+      <button class="btn primary" onclick="submitAddModel()">Add model</button>
+    </div>
+    <p id="am-result"></p>
+  </section>
+
+  <section class="suggest" style="margin-top:16px;">
+    <h3>Missing a provider we should bundle?</h3>
+    <p>Opens a pre-filled issue on <a href="https://github.com/mrrlin-dev/external-agents/issues" target="_blank" rel="noopener">mrrlin-dev/external-agents</a> — for models you want everyone to get out of the box.</p>
     <div class="fields">
       <input id="suggest-name" placeholder="Model or provider (e.g. anthropic/haiku-4-5)">
       <input id="suggest-url"  placeholder="Docs / setup URL (optional)">
-      <button class="btn primary" onclick="submitSuggest()">Suggest</button>
+      <button class="btn" onclick="submitSuggest()">Suggest</button>
     </div>
     <p id="suggest-result"></p>
   </section>
@@ -502,22 +570,35 @@ function fmtUsd(v) {
   return "$" + Math.round(v);
 }
 
-function renderRows(agents) {
+function renderRows(agents, statsByAgent) {
   const tbody = document.getElementById("rows");
   tbody.innerHTML = "";
   for (const a of agents) {
     const tr = document.createElement("tr");
-    tr.className = a.state || "healthy";
+    const enabled = a.enabled !== false;
+    tr.className = (a.state || "healthy") + (enabled ? "" : " disabled");
     const tags = (a.tags || []).map(t =>
       '<span class="badge ' + (t === 'free' ? 'free' : '') + '">' + t + '</span>'
     ).join("");
+    const lastErr = (statsByAgent || {})[a.id]?.last_error;
+    const errCell = lastErr && lastErr.error_preview
+      ? '<span class="last-err" title="' + esc(lastErr.error_preview) + '">' +
+          (lastErr.http_status ? 'HTTP ' + lastErr.http_status + ' · ' : '') +
+          esc(lastErr.error_preview) +
+        '</span>'
+      : '';
+    const toggleId = 'tg-' + a.id.replace(/[^a-z0-9]/gi, '_');
     tr.innerHTML =
+      '<td><label class="switch">' +
+        '<input type="checkbox" id="' + toggleId + '" ' + (enabled ? "checked" : "") +
+        ' onchange="toggleAgent(\\'' + a.id + '\\', this.checked)"><span class="slider"></span>' +
+      '</label></td>' +
       '<td class="id">' + a.id + '</td>' +
       '<td>' + (a.provider || "—") + '</td>' +
       '<td class="model">' + (a.model || "—") + '</td>' +
       '<td class="tier">' + (a.tier || "—") + '</td>' +
       '<td>' + tags + '</td>' +
-      '<td><span class="pill ' + (a.state || "healthy") + '">' + (a.state || "healthy") + '</span></td>' +
+      '<td><span class="pill ' + (a.state || "healthy") + '">' + (a.state || "healthy") + '</span>' + errCell + '</td>' +
       '<td class="note">' + (a.note || "—") + '</td>' +
       '<td class="time">' + fmtTime(a.last_used_at) + '</td>' +
       '<td>' + (a.usage_url
@@ -528,6 +609,52 @@ function renderRows(agents) {
   }
   document.getElementById("stamp").textContent =
     "loaded " + new Date().toLocaleTimeString([], { hour12: false });
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[ch]);
+}
+async function toggleAgent(id, enabled) {
+  await fetch("/api/toggle", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, enabled }),
+  });
+  await refresh();
+}
+async function submitAddModel() {
+  const out = document.getElementById("am-result");
+  const payload = {
+    id:       document.getElementById("am-id").value.trim(),
+    provider: document.getElementById("am-provider").value.trim(),
+    model:    document.getElementById("am-model").value.trim(),
+    url:      document.getElementById("am-url").value.trim(),
+    env:      document.getElementById("am-env").value.trim(),
+    tier:     document.getElementById("am-tier").value,
+    tags:     document.getElementById("am-tags").value.trim(),
+  };
+  const miss = ["id", "provider", "model", "url", "env"].filter(k => !payload[k]);
+  if (miss.length) {
+    out.textContent = "missing: " + miss.join(", ");
+    out.style.color = "var(--err)";
+    return;
+  }
+  out.textContent = "saving…"; out.style.color = "var(--text-2)";
+  const r = await fetch("/api/add_model", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json();
+  if (r.ok) {
+    out.innerHTML = '<span style="color:var(--accent);">✓ ' + j.action + '</span> — probe the new model or paste its API key above.';
+    out.style.color = "var(--accent)";
+    ["am-id","am-provider","am-model","am-url","am-env","am-tags"].forEach(id => document.getElementById(id).value = "");
+    await refresh();
+  } else {
+    out.textContent = "error: " + (j.error || r.statusText);
+    out.style.color = "var(--err)";
+  }
 }
 
 function renderStats(s) {
@@ -685,7 +812,7 @@ async function refresh() {
   ]);
   renderStats(stats);
   renderUnlock(state.agents);
-  renderRows(state.agents);
+  renderRows(state.agents, stats.by_agent);
 }
 async function verify(id) {
   await fetch("/api/probe?id=" + encodeURIComponent(id), { method: "POST" });
@@ -797,6 +924,76 @@ const server = http.createServer(async (req, res) => {
     const checked = Math.floor(Date.now() / 1000);
     writeState({ [id]: { ...result, checked } });
     return json(res, 200, { id, ...result, checked });
+  }
+
+  // POST /api/toggle { id, enabled } — flip the operator kill switch. Stored in
+  // state.json as `enabled: false`; pickAgents hides disabled entries from
+  // both pick and dispatch. Missing / true = enabled (default).
+  if (req.method === "POST" && p === "/api/toggle") {
+    let body = "";
+    req.on("data", (c) => { body += c.toString(); });
+    req.on("end", () => {
+      try {
+        const { id, enabled } = JSON.parse(body || "{}");
+        if (!id || !findAgent(id)) return json(res, 404, { error: `unknown agent: ${id}` });
+        if (typeof enabled !== "boolean") return json(res, 400, { error: "enabled must be boolean" });
+        // writeState does a SHALLOW merge — the value for state[id] is replaced
+        // wholesale — so we deep-merge here to keep probe results (state, note,
+        // checked, last_used_at) intact when the operator flips the toggle.
+        const current = readState()[id] || {};
+        writeState({ [id]: { ...current, enabled } });
+        console.error(`external-agents ui: toggle ${id} → enabled=${enabled}`);
+        return json(res, 200, { ok: true, id, enabled });
+      } catch (e) {
+        return json(res, 400, { error: "invalid json: " + e.message });
+      }
+    });
+    return;
+  }
+
+  // POST /api/add_model — append a user-authored entry to the LOCAL_PATH overlay.
+  // Same schema as `external-agents add-model`; the UI just gives it a form.
+  // Registry is hot-reloaded so the new row appears without a UI restart.
+  if (req.method === "POST" && p === "/api/add_model") {
+    let body = "";
+    req.on("data", (c) => { body += c.toString(); });
+    req.on("end", () => {
+      try {
+        const { id, provider, model, url: modelUrl, env: envVar, tier, tags } = JSON.parse(body || "{}");
+        if (!id || !provider || !model || !modelUrl || !envVar) {
+          return json(res, 400, { error: "missing required field (id / provider / model / url / env)" });
+        }
+        if (!/^[A-Za-z0-9_.:@\-]+$/.test(id)) return json(res, 400, { error: "id contains invalid chars" });
+        if (!/^[A-Z_][A-Z0-9_]*$/.test(envVar)) return json(res, 400, { error: "env must be SHOUTY_SNAKE_CASE" });
+        const entry = {
+          id, provider, model,
+          tier: tier === "strong" ? "strong" : "weak",
+          tags: Array.isArray(tags) ? tags : (typeof tags === "string" ? tags.split(",").map(t => t.trim()).filter(Boolean) : []),
+          auth: `env:${envVar}`,
+          transports: { generate_new: { url: modelUrl, env: envVar, model } },
+        };
+        let overlay = { schema_version: 1, agents: [] };
+        if (fs.existsSync(LOCAL_PATH)) {
+          try {
+            const parsed = yaml.load(fs.readFileSync(LOCAL_PATH, "utf-8"));
+            if (parsed && Array.isArray(parsed.agents)) overlay = parsed;
+          } catch (e) {
+            return json(res, 500, { error: `existing ${LOCAL_PATH} unreadable: ${e.message}` });
+          }
+        }
+        const idx = overlay.agents.findIndex((a) => a.id === entry.id);
+        if (idx >= 0) overlay.agents[idx] = entry;
+        else overlay.agents.push(entry);
+        fs.mkdirSync(path.dirname(LOCAL_PATH), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(LOCAL_PATH, yaml.dump(overlay), { mode: 0o644 });
+        reloadRegistry();
+        console.error(`external-agents ui: add-model ${entry.id} (${idx >= 0 ? "replaced" : "added"})`);
+        return json(res, 200, { ok: true, action: idx >= 0 ? "replaced" : "added", id: entry.id });
+      } catch (e) {
+        return json(res, 400, { error: "invalid json: " + e.message });
+      }
+    });
+    return;
   }
 
   res.writeHead(404, { "Content-Type": "text/plain" });
