@@ -323,55 +323,11 @@ agents:
         model: cohere/north-mini-code:free
       edit_exists: "aider --model openrouter/cohere/north-mini-code:free"
 
-  # ============ Cerebras — ~2000 tok/s, 30 rpm free ============
-  # Model list verified against Cerebras /v1/models on 2026-07-23. The
-  # previous entries (llama3.3-70b, qwen-3-coder-480b) were retired by
-  # Cerebras and returned 404 for months.
-  - id: cerebras-gpt-oss-120b
-    provider: cerebras
-    model: gpt-oss-120b
-    quota_scope: shared
-    tier: strong
-    tags: [quick, fast, reasoning, free]
-    auth: "env:CEREBRAS_API_KEY"
-    preference_order: 7
-    usage_url: "https://cloud.cerebras.ai/platform/keys"
-    transports:
-      generate_new:
-        url: "https://api.cerebras.ai/v1/chat/completions"
-        env: CEREBRAS_API_KEY
-        model: gpt-oss-120b
-      edit_exists: "aider --model cerebras/gpt-oss-120b"
-
-  - id: cerebras-zai-glm-4.7
-    provider: cerebras
-    model: zai-glm-4.7
-    quota_scope: shared
-    tier: weak
-    tags: [quick, fast, free]
-    auth: "env:CEREBRAS_API_KEY"
-    usage_url: "https://cloud.cerebras.ai/platform/keys"
-    transports:
-      generate_new:
-        url: "https://api.cerebras.ai/v1/chat/completions"
-        env: CEREBRAS_API_KEY
-        model: zai-glm-4.7
-      edit_exists: "aider --model cerebras/zai-glm-4.7"
-
-  - id: cerebras-gemma-4-31b
-    provider: cerebras
-    model: gemma-4-31b
-    quota_scope: shared
-    tier: weak
-    tags: [quick, fast, free]
-    auth: "env:CEREBRAS_API_KEY"
-    usage_url: "https://cloud.cerebras.ai/platform/keys"
-    transports:
-      generate_new:
-        url: "https://api.cerebras.ai/v1/chat/completions"
-        env: CEREBRAS_API_KEY
-        model: gemma-4-31b
-      edit_exists: "aider --model cerebras/gemma-4-31b"
+  # Cerebras removed in 0.13.0 — every currently-hosted model
+  # (gpt-oss-120b, zai-glm-4.7, gemma-4-31b) returned HTTP 402 "Payment
+  # required" against a standard account. No usable free tier remains.
+  # Users on a paid Cerebras plan can add the entries via
+  # `external-agents add-model --provider cerebras ...` — see README.
 
   # ============ Ollama Cloud (via localhost daemon → cloud proxy) ============
   - id: ollama-gpt-oss-20b
