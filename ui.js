@@ -772,7 +772,13 @@ function renderRows(agents, statsByAgent) {
         // just a static explainer instead of a name, since the actual
         // resolved model varies by account/plan and can't be hardcoded here.
         (a.model === "default"
-          ? '<span class="sub" title="Resolves to whatever your Codex plan exposes — run \'codex exec &quot;what model are you?&quot;\' to check">auto (account-picked)</span>'
+          // Use &#39; (HTML entity) instead of a literal apostrophe here — a
+          // literal ' inside this single-quoted JS string would need \' to
+          // survive, but backslash escapes get consumed by the OUTER PAGE
+          // template literal before this text ever reaches the browser
+          // (learned the hard way — see git history). Entities sidestep the
+          // whole escaping trap.
+          ? '<span class="sub" title="Resolves to whatever your Codex plan exposes — run &#39;codex exec &quot;what model are you?&quot;&#39; to check">auto (account-picked)</span>'
           : a.model && a.model !== a.id
           ? '<span class="sub">' + esc(a.model) + '</span>'
           : '') +
