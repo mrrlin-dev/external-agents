@@ -387,9 +387,14 @@ agents:
   # dispatch that failed. Which of the two is "primary" is decided by the
   # consumer (mrrlin will make this operator-configurable in a later slice);
   # both are registered here so either can serve.
-  # Codex family — subscription-backed, two tiers so `escalate_to_pro` has a
-  # target. `codex` (default weak-strong) works on every Codex plan; `codex-pro`
-  # picks the strongest model on your plan via `-m gpt-5.4-codex`.
+  # Codex family — every entry is explicit-model (no aliases). Live-verified
+  # against a ChatGPT-plan account: the `-codex` family models
+  # (gpt-5.4-codex, gpt-5.3-codex) return "not supported when using Codex with
+  # a ChatGPT account" and gpt-5.6-terra returns "requires a newer version of
+  # Codex". Only gpt-5.4-mini works on the free ChatGPT tier — keep just that
+  # explicit entry plus the `codex` default (which lets the CLI choose whatever
+  # the operator's plan actually exposes). Users on an OpenAI API-key plan can
+  # add the -codex tiers back via `external-agents add-model`.
   - id: codex
     provider: openai
     model: default
@@ -400,19 +405,6 @@ agents:
     transports:
       edit_exists: "codex exec --skip-git-repo-check"
 
-  - id: codex-pro
-    provider: openai
-    model: gpt-5.4-codex
-    tier: strong
-    tags: [reasoning]
-    auth: "cli:codex"
-    usage_url: "https://platform.openai.com/usage"
-    transports:
-      edit_exists: "codex exec --skip-git-repo-check -m gpt-5.4-codex"
-
-  # Explicit-model Codex entries — some accounts (ChatGPT-subscription vs
-  # API-key) expose different model sets. gpt-5.4-mini verified live on a
-  # ChatGPT-plan account; the -codex tier models require an OpenAI API key.
   - id: codex-gpt-5.4-mini
     provider: openai
     model: gpt-5.4-mini
@@ -422,26 +414,6 @@ agents:
     usage_url: "https://platform.openai.com/usage"
     transports:
       edit_exists: "codex exec --skip-git-repo-check -m gpt-5.4-mini"
-
-  - id: codex-gpt-5.3-codex
-    provider: openai
-    model: gpt-5.3-codex
-    tier: strong
-    tags: [reasoning]
-    auth: "cli:codex"
-    usage_url: "https://platform.openai.com/usage"
-    transports:
-      edit_exists: "codex exec --skip-git-repo-check -m gpt-5.3-codex"
-
-  - id: codex-gpt-5.6-terra
-    provider: openai
-    model: gpt-5.6-terra
-    tier: strong
-    tags: []
-    auth: "cli:codex"
-    usage_url: "https://platform.openai.com/usage"
-    transports:
-      edit_exists: "codex exec --skip-git-repo-check -m gpt-5.6-terra"
 
   # Claude family — subscription-backed. All non-Fable Claude 5 / Opus 4.x
   # models. `claude-opus-4-8` is the newest strong; `claude-haiku-4-5` is

@@ -6,7 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
-import { verifyCredential, getStats } from "./lib/dispatch.js";
+import { verifyCredential, getStats, auditCliEntry } from "./lib/dispatch.js";
+import { bootEnv } from "./lib/credentials.js";
+// Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
+// before any probe/dispatch runs. Without this, /api/audit sees a blank env
+// and reports all API-key entries as needs_auth.
+bootEnv();
 import yaml from "js-yaml";
 
 // UI-set persisted keys — MUST use the same file that server.js reads at
@@ -477,6 +482,11 @@ const PAGE = `<!doctype html>
   .badge.cli    { background: rgba(88,166,255,.14); color: var(--info); border-color: transparent; }
   .badge.apikey { background: rgba(163,113,247,.16); color: #a371f7; border-color: transparent; }
 
+  /* Verify (row-level "run") button — clicks a live audit against ONE agent,
+     shows loading + outcome inline before the row redraws. */
+  .verify-btn { height: 26px; padding: 0 10px; font-size: 11px; min-width: 68px; }
+  .verify-btn:disabled { opacity: 0.7; cursor: wait; }
+
   /* ---------- Suggest form ---------- */
   .suggest {
     margin-top: 40px;
@@ -783,7 +793,7 @@ function renderRows(agents, statsByAgent) {
       '<td class="time">' + fmtTime(a.last_used_at) + '</td>' +
       '<td>' + (a.usage_url
         ? '<a href="' + a.usage_url + '" target="_blank" rel="noopener">usage ↗</a>'
-        : '<button class="btn" style="height:26px;padding:0 10px;font-size:11px;" onclick="verify(\\'' + a.id + '\\')">verify</button>') +
+        : '<button class="btn verify-btn" id="vb-' + a.id.replace(/[^a-z0-9]/gi, '_') + '" onclick="verify(\\'' + a.id + '\\')" title="Live probe — dispatch a tiny prompt and update state">run</button>') +
       '</td>';
     tbody.appendChild(tr);
   }
@@ -1033,8 +1043,27 @@ async function refresh() {
   renderRows(state.agents, stats.by_agent);
 }
 async function verify(id) {
-  await fetch("/api/probe?id=" + encodeURIComponent(id), { method: "POST" });
-  await refresh();
+  const btnId = "vb-" + id.replace(/[^a-z0-9]/gi, "_");
+  const btn = document.getElementById(btnId);
+  const originalText = btn ? btn.textContent : "run";
+  if (btn) { btn.textContent = "..."; btn.disabled = true; }
+  try {
+    const r = await fetch("/api/audit?id=" + encodeURIComponent(id), { method: "POST" });
+    const j = await r.json();
+    // Flash the outcome on the button for 1.5s before refresh redraws the row.
+    if (btn) {
+      const glyph = j.outcome === "healthy" ? "✓" :
+                    j.outcome === "needs_auth" ? "⚠" :
+                    j.outcome === "model_unavailable" ? "✗" :
+                    j.outcome === "quota_exhausted" || j.outcome === "rate_limited" ? "⏳" : "?";
+      btn.textContent = glyph + " " + (j.latency_ms ? j.latency_ms + "ms" : j.outcome);
+      btn.disabled = false;
+    }
+    setTimeout(() => refresh(), 1200);
+  } catch (e) {
+    if (btn) { btn.textContent = "✗ err"; btn.disabled = false; }
+    setTimeout(() => refresh(), 1200);
+  }
 }
 document.querySelectorAll("#thead-row th[data-sort]").forEach(th => {
   th.addEventListener("click", () => setSort(th.dataset.sort));
@@ -1158,6 +1187,43 @@ const server = http.createServer(async (req, res) => {
     const checked = Math.floor(Date.now() / 1000);
     writeState({ [id]: { ...result, checked } });
     return json(res, 200, { id, ...result, checked });
+  }
+
+  // POST /api/audit?id=X — single-agent live audit. For entries with a
+  // generate_new transport uses verifyCredential (HTTP round-trip ~500ms);
+  // for edit_exists-only entries invokes auditCliEntry (spawns the CLI with
+  // a tiny prompt, 5-20s). Writes the resulting state to state.json (same
+  // deep-merge semantics as the CLI `audit` command) and returns the outcome
+  // so the UI can flash a per-button result before the full refresh().
+  if (req.method === "POST" && p === "/api/audit") {
+    const id = parsed.query.id;
+    if (!id || typeof id !== "string") return json(res, 400, { error: "missing id" });
+    const entry = findAgent(id);
+    if (!entry) return json(res, 404, { error: `unknown agent: ${id}` });
+    const hasApi = !!entry.transports?.generate_new?.url;
+    const v = hasApi ? await verifyCredential(entry) : await auditCliEntry(entry);
+    const outcome =
+      v.ok                       ? "healthy"
+      : v.modelUnavailable       ? "model_unavailable"
+      : v.quotaExhausted         ? "quota_exhausted"
+      : v.needsAuth              ? "needs_auth"
+      : v.status === 401 || v.status === 403 ? "needs_auth"
+      : v.status === 429         ? "rate_limited"
+      : "errored_transient";
+    const note =
+      v.ok            ? `verified (${v.latencyMs}ms)${hasApi ? "" : " (cli)"}`
+      : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
+      : `HTTP ${v.status || "?"}`;
+    const existing = readState()[entry.id] || {};
+    writeState({
+      [entry.id]: {
+        ...existing,
+        state: outcome,
+        note,
+        checked: Math.floor(Date.now() / 1000),
+      },
+    });
+    return json(res, 200, { id, outcome, note, latency_ms: v.latencyMs || null, status: v.status || null });
   }
 
   // POST /api/toggle { id, enabled } — flip the operator kill switch. Stored in
