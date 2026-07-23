@@ -217,6 +217,7 @@ function cmdInit(flags) {
   const port = Number(flags.port) || 4711;
   const host = String(flags.host || "127.0.0.1");
   const url  = `http://${host}:${port}/`;
+  const skipOpen = flags["no-open"] === true;
   const opener =
     process.platform === "darwin" ? "open" :
     process.platform === "win32"  ? "cmd" :
@@ -226,6 +227,12 @@ function cmdInit(flags) {
   const uiPath = path.join(path.dirname(new URL(import.meta.url).pathname), "ui.js");
   const env = { ...process.env, EXTERNAL_AGENTS_UI_PORT: String(port), EXTERNAL_AGENTS_UI_HOST: host };
   const child = spawn(process.execPath, [uiPath], { stdio: "inherit", env });
+  if (skipOpen) {
+    child.on("exit", (code) => process.exit(code ?? 0));
+    process.on("SIGINT",  () => child.kill("SIGINT"));
+    process.on("SIGTERM", () => child.kill("SIGTERM"));
+    return;
+  }
   // Give the UI ~600ms to bind before opening the browser (loopback listen is
   // usually instantaneous but we do not want the browser to open on a not-yet-
   // bound port). Browser-open is best-effort — swallow BOTH sync spawn errors
@@ -327,14 +334,10 @@ function cmdAddModel(flags) {
 }
 
 function cmdUi(flags) {
-  const uiPath = path.join(path.dirname(new URL(import.meta.url).pathname), "ui.js");
-  const env = { ...process.env };
-  if (flags.port) env.EXTERNAL_AGENTS_UI_PORT = String(flags.port);
-  if (flags.host) env.EXTERNAL_AGENTS_UI_HOST = String(flags.host);
-  const child = spawn(process.execPath, [uiPath], { stdio: "inherit", env });
-  child.on("exit", (code) => process.exit(code ?? 0));
-  process.on("SIGINT", () => child.kill("SIGINT"));
-  process.on("SIGTERM", () => child.kill("SIGTERM"));
+  // Same behavior as `init` — start UI, then open the browser after a short
+  // delay to let the port bind. Pass --no-open to skip the browser (useful in
+  // SSH / tmux where a launched browser would just open on the wrong screen).
+  cmdInit(flags);
 }
 
 // --- entrypoint ---------------------------------------------------
@@ -361,8 +364,8 @@ switch (subcmd) {
   status [--json]
   probe <agent-id>
   stats [--since ISO] [--json]
-  ui [--port N] [--host H]        # local dashboard for setting keys + inspecting state (default http://127.0.0.1:4711)
-  init [--port N] [--host H]      # launch UI AND open it in the default browser — the "just installed" one-shot
+  ui [--port N] [--host H] [--no-open]   # local dashboard (auto-opens in browser; use --no-open for SSH/tmux)
+  init                                    # alias for 'ui' — kept for backward compat
   set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin
   refresh [--url URL]              # pull latest agents.yaml from GitHub main (default) or --url; writes overlay to ~/.local/state/external-agents/agents.yaml.override
   add-model --id ID --provider P --url URL --model M --env ENV_VAR [--tier weak|strong] [--tags a,b]

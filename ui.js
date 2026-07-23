@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadRegistry } from "./lib/registry.js";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
-import { verifyCredential } from "./lib/dispatch.js";
+import { verifyCredential, getStats } from "./lib/dispatch.js";
 
 // UI-set persisted keys — MUST use the same file that server.js reads at
 // startup, otherwise the operator's saved key is invisible on next boot.
@@ -35,9 +35,6 @@ function saveKeysFile(kv) {
   fs.renameSync(tmp, KEYS_FILE);
 }
 
-// Resolve agents.yaml relative to this file so 'external-agents ui' works from
-// any cwd (previously the "./agents.yaml" relative path only worked from the
-// package root).
 const __ui_dir = path.dirname(new URL(import.meta.url).pathname);
 const REGISTRY = loadRegistry(path.join(__ui_dir, "agents.yaml"));
 const HOST = process.env.EXTERNAL_AGENTS_UI_HOST || "127.0.0.1";
@@ -50,192 +47,515 @@ function stateRows() {
     ...(state[entry.id] || { state: "healthy" }),
   }));
 }
-
 function findAgent(id) {
   return REGISTRY.agents.find((a) => a.id === id);
+}
+
+// Compute the tile-strip stats. `saved` is a deliberately-conservative estimate:
+// we anchor "what would this have cost on a strong closed model" at Claude
+// Sonnet 4.5 input+output blended ~$3/M tokens. Every dispatch that hit a free
+// provider is counted as tokens_total × $3/M saved. Not marketing spin —
+// honestly labeled as "vs Claude Sonnet input" in the UI.
+const SAVED_ANCHOR_PER_M = 3.0;
+function computeStats() {
+  const rows = stateRows();
+  const healthy = rows.filter((r) => r.state === "healthy").length;
+  const locked  = rows.filter((r) => r.state === "needs_auth").length;
+  const s24 = getStats(new Date(Date.now() - 24 * 3600 * 1000).toISOString());
+  const dispatches24 = s24.total || 0;
+  const tokensAll = Object.values(s24.by_agent || {})
+    .reduce((sum, a) => sum + (a.tokens_in || 0) + (a.tokens_out || 0), 0);
+  // We only count "saved" for dispatches that would otherwise cost real money —
+  // ie. those that ran on free-tagged agents. Anything else was going to cost
+  // something already.
+  const freeIds = new Set(rows.filter((r) => (r.tags || []).includes("free")).map((r) => r.id));
+  const tokensFree = Object.entries(s24.by_agent || {})
+    .filter(([id]) => freeIds.has(id))
+    .reduce((sum, [, a]) => sum + (a.tokens_in || 0) + (a.tokens_out || 0), 0);
+  const savedUsd = (tokensFree / 1_000_000) * SAVED_ANCHOR_PER_M;
+  return {
+    healthy_count:  healthy,
+    locked_count:   locked,
+    total_count:    rows.length,
+    dispatches_24h: dispatches24,
+    tokens_24h:     tokensAll,
+    tokens_free_24h: tokensFree,
+    saved_usd_24h:  savedUsd,
+    saved_anchor:   SAVED_ANCHOR_PER_M,
+  };
 }
 
 const PAGE = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>external-agents</title>
 <style>
-  body { font: 14px -apple-system, system-ui, sans-serif; margin: 20px; color: #222; background: #fafafa; }
-  h1 { margin: 0 0 6px 0; }
-  p.hint { color: #666; margin: 0 0 16px 0; }
-  button { font: inherit; padding: 6px 12px; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; }
-  button:hover { background: #f0f0f0; }
-  button.primary { background: #4a90e2; color: #fff; border-color: #3878c0; }
-  button.primary:hover { background: #3878c0; }
-  table { border-collapse: collapse; width: 100%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
-  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
-  th { background: #f4f4f4; font-weight: 600; }
-  td.state { font-weight: 600; }
-  tr.healthy td.state { background: #dcf5e0; color: #1a6b31; }
-  tr.quota_exhausted td.state { background: #fff2cc; color: #7a5300; }
-  tr.needs_auth td.state, tr.not_installed td.state { background: #fbdad3; color: #9a2b1c; }
-  tr.errored_transient td.state { background: #e6e6e6; color: #555; }
-  td.note { color: #666; font-size: 12px; }
-  td.time { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #666; font-size: 12px; }
-  .row-controls { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
-  .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; background: #e0e0e0; font-size: 11px; color: #444; margin-right: 4px; }
-  .badge.free { background: #d4f7d4; color: #216d2c; font-weight: 600; }
-  .badge.free::before { content: "$0 "; opacity: 0.8; }
+  /* ---------- Tokens ---------- */
+  :root {
+    --bg:       #f6f8fa;
+    --panel:    #ffffff;
+    --panel-2:  #f6f8fa;
+    --border:   #d0d7de;
+    --border-2: #e6ebf1;
+    --text:     #1f2328;
+    --text-2:   #59636e;
+    --text-3:   #818b98;
+    --accent:   #1a7f37;
+    --accent-2: #dafbe1;
+    --warn:     #9a6700;
+    --warn-2:   #fff8c5;
+    --err:      #cf222e;
+    --err-2:    #ffebe9;
+    --info-2:   #ddf4ff;
+    --info:     #0969da;
+    --mono:     ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans:     -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:       #0d1117;
+      --panel:    #161b22;
+      --panel-2:  #1c232b;
+      --border:   #2c3441;
+      --border-2: #21262d;
+      --text:     #e6edf3;
+      --text-2:   #8b949e;
+      --text-3:   #586069;
+      --accent:   #39d353;
+      --accent-2: #1f6427;
+      --warn:     #f0b429;
+      --warn-2:   #4a3812;
+      --err:      #f85149;
+      --err-2:    #4a1418;
+      --info-2:   #264066;
+      --info:     #58a6ff;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:#f6f8fa;--panel:#ffffff;--panel-2:#f6f8fa;--border:#d0d7de;--border-2:#e6ebf1;
+    --text:#1f2328;--text-2:#59636e;--text-3:#818b98;
+    --accent:#1a7f37;--accent-2:#dafbe1;--warn:#9a6700;--warn-2:#fff8c5;
+    --err:#cf222e;--err-2:#ffebe9;--info-2:#ddf4ff;--info:#0969da;
+  }
+  :root[data-theme="dark"] {
+    --bg:#0d1117;--panel:#161b22;--panel-2:#1c232b;--border:#2c3441;--border-2:#21262d;
+    --text:#e6edf3;--text-2:#8b949e;--text-3:#586069;
+    --accent:#39d353;--accent-2:#1f6427;--warn:#f0b429;--warn-2:#4a3812;
+    --err:#f85149;--err-2:#4a1418;--info-2:#264066;--info:#58a6ff;
+  }
 
-  .unlock {
-    background: linear-gradient(135deg, #fff8dc 0%, #fdf2c4 100%);
-    border: 1px solid #d4b942;
-    border-radius: 6px;
-    padding: 16px 18px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(212, 185, 66, 0.15);
+  /* ---------- Base ---------- */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
   }
-  .unlock h2 { margin: 0 0 6px 0; font-size: 16px; color: #6b5a12; }
-  .unlock h2::before { content: "💰 "; }
-  .unlock p.tag { margin: 0 0 12px 0; color: #7a682a; font-size: 13px; }
-  .unlock .row {
+  a { color: var(--info); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, .mono { font-family: var(--mono); font-size: 12.5px; }
+
+  /* ---------- Container ---------- */
+  .container {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+
+  /* ---------- Header ---------- */
+  .header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 4px; flex-wrap: wrap; gap: 8px;
+  }
+  .header h1 {
+    font-family: var(--sans);
+    font-size: 24px; font-weight: 700; letter-spacing: -0.4px;
+    margin: 0; text-wrap: balance;
+  }
+  .header h1 .dot { color: var(--accent); }
+  .header .listening {
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--text-2); background: var(--panel);
+    padding: 3px 8px; border: 1px solid var(--border-2); border-radius: 4px;
+  }
+  .header .listening::before { content: "● "; color: var(--accent); }
+  .subtitle {
+    color: var(--text-2); font-size: 13.5px;
+    margin: 0 0 24px 0; max-width: 620px;
+  }
+
+  /* ---------- Stats strip ---------- */
+  .stats {
     display: grid;
-    grid-template-columns: minmax(140px, 180px) 1fr auto minmax(220px, 260px) auto;
-    gap: 10px;
-    align-items: center;
-    padding: 10px 0;
-    border-top: 1px solid #e5cd6c;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
   }
-  .unlock input.keyinput {
-    padding: 5px 8px;
-    border: 1px solid #d4b942;
-    border-radius: 3px;
-    font: inherit;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    background: #fff;
+  @media (max-width: 780px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
   }
-  .unlock button.save {
-    padding: 5px 12px;
-    background: #216d2c;
-    color: #fff;
-    border: 1px solid #1a5623;
-    border-radius: 3px;
+  .stat .label {
+    text-transform: uppercase; letter-spacing: 0.6px;
+    font-size: 10.5px; font-weight: 600;
+    color: var(--text-3);
+    margin: 0 0 8px 0;
+  }
+  .stat .value {
+    font-family: var(--sans);
+    font-size: 26px; font-weight: 600; line-height: 1;
+    color: var(--text);
+    letter-spacing: -0.5px;
+    margin: 0 0 6px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .foot {
+    font-size: 11.5px; color: var(--text-2);
+  }
+  .stat.hero {
+    background: linear-gradient(135deg, var(--panel) 0%, var(--panel-2) 100%);
+    border-color: var(--accent-2);
+  }
+  .stat.hero .value { color: var(--accent); }
+  .stat.hero::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .stat.warn .value { color: var(--warn); }
+  .stat.warn::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    box-shadow: inset 3px 0 0 var(--warn);
+  }
+
+  /* ---------- Unlock banner ---------- */
+  .unlock {
+    background: var(--panel);
+    border: 1px solid var(--warn-2);
+    border-left: 3px solid var(--warn);
+    border-radius: 8px;
+    padding: 20px 22px;
+    margin-bottom: 24px;
+  }
+  .unlock h2 {
+    margin: 0 0 4px 0; font-size: 15px; font-weight: 600;
+    color: var(--text); letter-spacing: -0.1px;
+  }
+  .unlock .tag {
+    margin: 0 0 16px 0; color: var(--text-2); font-size: 13px;
+    max-width: 720px;
+  }
+  .unlock-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 190px) 1fr minmax(280px, 340px) auto;
+    gap: 12px 20px;
+    align-items: start;
+    padding: 14px 0;
+    border-top: 1px solid var(--border-2);
+  }
+  .unlock-row:first-of-type { border-top: none; padding-top: 6px; }
+  .unlock-row .prov { font-weight: 600; color: var(--text); font-size: 13.5px; }
+  .unlock-row .waiting {
+    font-size: 11px; color: var(--text-3); margin-top: 2px;
+    font-family: var(--mono);
+  }
+  .unlock-row .pitch { color: var(--text-2); font-size: 13px; }
+  .unlock-row .keyrow { display: flex; gap: 8px; align-items: center; }
+  .unlock-row .keyinput {
+    flex: 1; height: 32px; box-sizing: border-box;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: var(--mono); font-size: 12px;
+    background: var(--bg); color: var(--text);
+    outline: none;
+  }
+  .unlock-row .keyinput:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-2); }
+  .unlock-row .status {
+    display: block; font-size: 11.5px; color: var(--text-2);
+    margin-top: 6px; min-height: 14px; font-family: var(--mono);
+  }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 32px; box-sizing: border-box;
+    padding: 0 14px;
+    font-family: var(--sans);
+    font-size: 12.5px; font-weight: 500;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
     cursor: pointer;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 600;
-  }
-  .unlock button.save:hover { background: #1a5623; }
-  .unlock button.save:disabled { background: #999; cursor: default; }
-  .unlock .status {
-    grid-column: 1 / -1;
-    color: #216d2c;
-    font-size: 12px;
-    padding-top: 4px;
-    min-height: 16px;
-  }
-  .unlock .status.err { color: #a33; }
-  .unlock .row:first-of-type { border-top: none; padding-top: 4px; }
-  .unlock .row .prov { font-weight: 600; color: #4a3d0e; }
-  .unlock .row .desc { color: #6b5a12; font-size: 13px; }
-  .unlock .row .env {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    background: rgba(255,255,255,.6);
-    padding: 3px 6px;
-    border-radius: 3px;
-    color: #4a3d0e;
-  }
-  .unlock .row a.signup {
-    color: #216d2c;
-    background: #d4f7d4;
-    padding: 5px 11px;
-    border-radius: 4px;
     text-decoration: none;
-    font-size: 13px;
-    font-weight: 600;
     white-space: nowrap;
+    transition: background 80ms;
   }
-  .unlock .row a.signup:hover { background: #b8ebba; }
-  .unlock .footer { margin-top: 10px; color: #7a682a; font-size: 12px; font-style: italic; }
+  .btn:hover { background: var(--panel); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn.primary {
+    background: var(--accent); color: #052e0c; border-color: var(--accent);
+    font-weight: 600;
+  }
+  .btn.primary:hover { filter: brightness(1.05); background: var(--accent); }
+  :root[data-theme="light"] .btn.primary { color: #ffffff; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .btn.primary { color: #ffffff; } }
+  .btn.signup { background: transparent; color: var(--accent); border-color: var(--accent); }
+  .btn.signup:hover { background: var(--accent-2); }
+
+  /* ---------- Table controls ---------- */
+  .controls {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-bottom: 12px;
+  }
+  .controls .left { display: flex; gap: 12px; align-items: center; }
+  .stamp { color: var(--text-3); font-size: 11.5px; font-family: var(--mono); }
+
+  /* ---------- Table ---------- */
+  .table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  table { border-collapse: collapse; width: 100%; }
+  th, td {
+    padding: 10px 14px; text-align: left;
+    border-bottom: 1px solid var(--border-2);
+    font-size: 12.5px; vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  th {
+    background: var(--panel-2);
+    font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--text-3);
+    position: sticky; top: 0; z-index: 1;
+  }
+  tbody tr { position: relative; }
+  tbody tr:hover td { background: var(--panel-2); }
+  td.id { font-family: var(--mono); color: var(--text); }
+  td.model { font-family: var(--mono); color: var(--text-2); font-size: 12px; }
+  td.tier { font-size: 11.5px; color: var(--text-2); }
+  td.time { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; }
+  td.note { color: var(--text-2); font-size: 11.5px; max-width: 320px; }
+
+  /* State — pill + row-rail */
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: 500;
+    font-family: var(--mono);
+  }
+  .pill::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    display: inline-block;
+  }
+  .pill.healthy         { background: var(--accent-2); color: var(--accent); }
+  .pill.healthy::before { background: var(--accent); }
+  .pill.needs_auth,
+  .pill.not_installed   { background: var(--err-2); color: var(--err); }
+  .pill.needs_auth::before,
+  .pill.not_installed::before { background: var(--err); }
+  .pill.quota_exhausted,
+  .pill.rate_limited    { background: var(--warn-2); color: var(--warn); }
+  .pill.quota_exhausted::before,
+  .pill.rate_limited::before { background: var(--warn); }
+  .pill.errored_transient { background: var(--info-2); color: var(--info); }
+  .pill.errored_transient::before { background: var(--info); }
+
+  tr.healthy         td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+  tr.needs_auth      td:first-child,
+  tr.not_installed   td:first-child { box-shadow: inset 2px 0 0 var(--err); }
+  tr.quota_exhausted td:first-child,
+  tr.rate_limited    td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
+  tr.errored_transient td:first-child { box-shadow: inset 2px 0 0 var(--info); }
+
+  /* Tags */
+  .badge {
+    display: inline-block; padding: 1px 7px; border-radius: 10px;
+    background: var(--panel-2); border: 1px solid var(--border-2);
+    color: var(--text-2); font-size: 10.5px; font-weight: 500;
+    margin-right: 3px; font-family: var(--mono);
+  }
+  .badge.free {
+    background: var(--accent-2); border-color: transparent; color: var(--accent);
+    font-weight: 600;
+  }
+  .badge.free::before { content: "$0 "; opacity: 0.7; }
+
+  /* ---------- Suggest form ---------- */
+  .suggest {
+    margin-top: 40px;
+    background: var(--panel); border: 1px dashed var(--border);
+    border-radius: 8px; padding: 20px 22px;
+  }
+  .suggest h3 { margin: 0 0 4px 0; font-size: 14px; font-weight: 600; }
+  .suggest p { margin: 0 0 14px 0; color: var(--text-2); font-size: 13px; }
+  .suggest .fields { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .suggest input {
+    flex: 1; min-width: 240px; height: 34px; padding: 0 12px;
+    border: 1px solid var(--border); border-radius: 5px;
+    font: inherit; background: var(--bg); color: var(--text); outline: none;
+  }
+  .suggest input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-2); }
+  #suggest-result { margin-top: 10px; font-size: 12px; color: var(--text-2); min-height: 16px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
 </style>
 </head>
 <body>
-<h1>External agents</h1>
-<p class="hint">Loopback dashboard for <code>external-agents-spike</code>. Refresh to update state; click <em>Verify</em> per row to run an install-check.</p>
+<div class="container">
+  <header class="header">
+    <h1>external-agents<span class="dot">.</span></h1>
+    <span class="listening">${HOST}:${PORT}</span>
+  </header>
+  <p class="subtitle">Local dashboard — inspect the pool, set API keys, watch dispatches settle. Zero data leaves this machine.</p>
 
-<div id="unlock" class="unlock" style="display:none"></div>
-<div class="row-controls">
-  <button class="primary" onclick="refresh()">Refresh</button>
-  <span id="stamp" style="color:#666;font-size:12px;"></span>
-</div>
-<table>
-<thead>
-<tr>
-  <th>ID</th><th>Provider</th><th>Model</th><th>Tier</th><th>Tags</th>
-  <th>State</th><th>Note</th><th>Last used</th><th>Usage</th><th>Actions</th>
-</tr>
-</thead>
-<tbody id="rows"></tbody>
-</table>
+  <section class="stats" id="stats">
+    <div class="stat">
+      <p class="label">Healthy models</p>
+      <p class="value" id="s-healthy">—</p>
+      <p class="foot" id="s-healthy-foot">of — total</p>
+    </div>
+    <div class="stat warn">
+      <p class="label">Locked (needs auth)</p>
+      <p class="value" id="s-locked">—</p>
+      <p class="foot" id="s-locked-foot">paste a key to unlock</p>
+    </div>
+    <div class="stat">
+      <p class="label">Dispatches · 24h</p>
+      <p class="value" id="s-disp">—</p>
+      <p class="foot" id="s-disp-foot">— tokens routed</p>
+    </div>
+    <div class="stat hero">
+      <p class="label">Est. saved · 24h</p>
+      <p class="value" id="s-saved">—</p>
+      <p class="foot" id="s-saved-foot">vs Claude Sonnet ($3/M)</p>
+    </div>
+  </section>
 
-<div style="margin-top: 32px; padding: 16px; background: #fff; border: 1px dashed #ccc; border-radius: 4px;">
-  <h3 style="margin: 0 0 4px 0; font-size: 15px;">Missing your model?</h3>
-  <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">Suggest a new model or provider &mdash; opens a pre-filled issue on the public tracker at <a href="https://github.com/mrrlin-dev/external-agents/issues" target="_blank" rel="noopener noreferrer">mrrlin-dev/external-agents</a>.</p>
-  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-    <input id="suggest-name" placeholder="Model or provider name (e.g. anthropic/haiku-4-5)" style="flex: 1; min-width: 260px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font: inherit;">
-    <input id="suggest-url" placeholder="Docs / setup URL (optional)" style="flex: 1; min-width: 260px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font: inherit;">
-    <button class="primary" onclick="submitSuggest()">Suggest</button>
+  <div id="unlock" class="unlock" style="display:none"></div>
+
+  <div class="controls">
+    <div class="left">
+      <button class="btn primary" onclick="refresh()">Refresh</button>
+      <span id="stamp" class="stamp"></span>
+    </div>
   </div>
-  <p id="suggest-result" style="margin: 8px 0 0 0; color: #4a8; font-size: 13px; min-height: 18px;"></p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>ID</th><th>Provider</th><th>Model</th><th>Tier</th><th>Tags</th>
+        <th>State</th><th>Note</th><th>Last used</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <section class="suggest">
+    <h3>Missing your model?</h3>
+    <p>Opens a pre-filled issue on <a href="https://github.com/mrrlin-dev/external-agents/issues" target="_blank" rel="noopener">mrrlin-dev/external-agents</a>. The maintainer reviews requests weekly.</p>
+    <div class="fields">
+      <input id="suggest-name" placeholder="Model or provider (e.g. anthropic/haiku-4-5)">
+      <input id="suggest-url"  placeholder="Docs / setup URL (optional)">
+      <button class="btn primary" onclick="submitSuggest()">Suggest</button>
+    </div>
+    <p id="suggest-result"></p>
+  </section>
 </div>
+
 <script>
 function fmtTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts * 1000);
-  return d.toLocaleTimeString() + " · " + d.toLocaleDateString();
+  const now = Date.now();
+  const diff = (now - ts * 1000) / 1000;
+  if (diff < 60)     return Math.floor(diff) + "s ago";
+  if (diff < 3600)   return Math.floor(diff / 60) + "m ago";
+  if (diff < 86400)  return Math.floor(diff / 3600) + "h ago";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
+function fmtNum(n) {
+  if (n == null) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+  return String(n);
+}
+function fmtUsd(v) {
+  if (!v || v < 0.001) return "$0.00";
+  if (v < 1)   return "$" + v.toFixed(3);
+  if (v < 100) return "$" + v.toFixed(2);
+  return "$" + Math.round(v);
+}
+
 function renderRows(agents) {
   const tbody = document.getElementById("rows");
   tbody.innerHTML = "";
   for (const a of agents) {
     const tr = document.createElement("tr");
     tr.className = a.state || "healthy";
-    const tags = (a.tags || []).map(t => '<span class="badge '+(t==='free'?'free':'')+'">'+t+'</span>').join("");
-    const usage = a.usage_url
-      ? '<a href="'+a.usage_url+'" target="_blank" rel="noopener" title="'+a.usage_url+'">↗ usage</a>'
-      : '—';
+    const tags = (a.tags || []).map(t =>
+      '<span class="badge ' + (t === 'free' ? 'free' : '') + '">' + t + '</span>'
+    ).join("");
     tr.innerHTML =
-      "<td>"+a.id+"</td>" +
-      "<td>"+(a.provider||"—")+"</td>" +
-      "<td>"+(a.model||"—")+"</td>" +
-      "<td>"+(a.tier||"—")+"</td>" +
-      "<td>"+tags+"</td>" +
-      '<td class="state">'+(a.state||"healthy")+"</td>" +
-      '<td class="note">'+(a.note||"—")+"</td>" +
-      '<td class="time">'+fmtTime(a.last_used_at)+"</td>" +
-      '<td>'+usage+'</td>' +
-      '<td><button onclick="verify(\\''+a.id+'\\')">Verify</button></td>';
+      '<td class="id">' + a.id + '</td>' +
+      '<td>' + (a.provider || "—") + '</td>' +
+      '<td class="model">' + (a.model || "—") + '</td>' +
+      '<td class="tier">' + (a.tier || "—") + '</td>' +
+      '<td>' + tags + '</td>' +
+      '<td><span class="pill ' + (a.state || "healthy") + '">' + (a.state || "healthy") + '</span></td>' +
+      '<td class="note">' + (a.note || "—") + '</td>' +
+      '<td class="time">' + fmtTime(a.last_used_at) + '</td>' +
+      '<td>' + (a.usage_url
+        ? '<a href="' + a.usage_url + '" target="_blank" rel="noopener">usage ↗</a>'
+        : '<button class="btn" style="height:26px;padding:0 10px;font-size:11px;" onclick="verify(\\'' + a.id + '\\')">verify</button>') +
+      '</td>';
     tbody.appendChild(tr);
   }
-  document.getElementById("stamp").textContent = "Loaded " + new Date().toLocaleTimeString();
+  document.getElementById("stamp").textContent =
+    "loaded " + new Date().toLocaleTimeString([], { hour12: false });
 }
+
+function renderStats(s) {
+  document.getElementById("s-healthy").textContent = s.healthy_count;
+  document.getElementById("s-healthy-foot").textContent = "of " + s.total_count + " total";
+  document.getElementById("s-locked").textContent = s.locked_count;
+  document.getElementById("s-locked-foot").textContent =
+    s.locked_count > 0 ? "paste a key below to unlock" : "all providers configured";
+  document.getElementById("s-disp").textContent = fmtNum(s.dispatches_24h);
+  document.getElementById("s-disp-foot").textContent =
+    fmtNum(s.tokens_24h) + " tokens routed";
+  document.getElementById("s-saved").textContent = fmtUsd(s.saved_usd_24h);
+  document.getElementById("s-saved-foot").textContent =
+    "vs Claude Sonnet ($" + s.saved_anchor.toFixed(0) + "/M) · " + fmtNum(s.tokens_free_24h) + " free-tier tokens";
+}
+
 async function submitSuggest() {
   const name = document.getElementById("suggest-name").value.trim();
-  const url  = document.getElementById("suggest-url").value.trim();
+  const u    = document.getElementById("suggest-url").value.trim();
   const out  = document.getElementById("suggest-result");
-  if (!name) { out.textContent = "please enter a model or provider name"; out.style.color = "#a33"; return; }
-  out.textContent = "opening GitHub issue…";
-  out.style.color = "#666";
-
-  // Open a pre-filled New Issue on the public tracker. The registry
-  // maintainer picks it up from GitHub; anyone else watching the repo can see
-  // it too, so proposals are discoverable and trackable without a local
-  // JSONL sidecar (which nobody ever reads).
+  if (!name) { out.textContent = "enter a model or provider name."; out.style.color = "var(--err)"; return; }
   const body = [
     "**Model / provider:** " + name,
     "",
-    url ? "**Docs / setup URL:** " + url : "**Docs / setup URL:** _(none provided)_",
+    u ? "**Docs / setup URL:** " + u : "**Docs / setup URL:** _(none provided)_",
     "",
     "---",
-    '_Submitted via \\'external-agents ui\\' — the local dashboard\\'s Missing-your-model form._',
+    "_Submitted via 'external-agents ui' — the local dashboard._",
   ].join('\\n');
   const issueUrl =
     "https://github.com/mrrlin-dev/external-agents/issues/new?" +
@@ -243,105 +563,91 @@ async function submitSuggest() {
     "&title=" + encodeURIComponent("Add " + name) +
     "&body=" + encodeURIComponent(body);
   window.open(issueUrl, "_blank", "noopener,noreferrer");
-
-  out.innerHTML = "opened a pre-filled GitHub issue in a new tab — " +
-    "just click <b>Submit new issue</b> there.";
-  out.style.color = "#4a8";
+  out.innerHTML = 'opened a pre-filled GitHub issue in a new tab — click <b>Submit new issue</b> there.';
+  out.style.color = "var(--accent)";
   document.getElementById("suggest-name").value = "";
   document.getElementById("suggest-url").value = "";
 }
-// Per-provider signup metadata for the unlock banner. Only providers whose
-// entries carry the "free" tag AND may show up in needs_auth appear here.
+
 const PROVIDER_META = {
   groq: {
     label: "Groq",
-    pitch: "Fastest inference on the market — ~500-800 tok/s",
+    pitch: "Fastest hosted inference — ~500-800 tok/s. Free 30 rpm.",
     signup: "https://console.groq.com/keys",
     env: "GROQ_API_KEY",
   },
   openrouter: {
     label: "OpenRouter",
-    pitch: "One key, 50+ free models (DeepSeek R1, Qwen-Coder, Llama, …)",
+    pitch: "One key, 50+ free models — DeepSeek R1, Qwen-Coder, Llama, more.",
     signup: "https://openrouter.ai/settings/keys",
     env: "OPENROUTER_API_KEY",
   },
   cerebras: {
     label: "Cerebras",
-    pitch: "~2000 tok/s — fastest on the planet, 30 rpm free",
+    pitch: "~2000 tok/s — fastest silicon on the planet. Free 30 rpm.",
     signup: "https://cloud.cerebras.ai/platform/keys",
     env: "CEREBRAS_API_KEY",
   },
   google: {
     label: "Google AI Studio",
-    pitch: "7 Gemini variants, each with its own free quota bucket",
+    pitch: "7 Gemini variants, each with its own free-quota bucket.",
     signup: "https://aistudio.google.com/apikey",
     env: "GEMINI_API_KEY",
   },
   zai: {
     label: "Z.ai (GLM)",
-    pitch: "Free tier for GLM-4.7-flash — a solid Chinese frontier model",
+    pitch: "Free tier for GLM-4.7-flash — solid Chinese frontier model.",
     signup: "https://z.ai/manage-apikey/apikey-list",
     env: "ZAI_API_KEY",
   },
   "ollama-cloud": {
     label: "Ollama Cloud",
-    pitch: "gpt-oss 20B/120B via your Ollama account",
+    pitch: "gpt-oss 20B/120B via your Ollama account.",
     signup: "https://ollama.com/download",
     env: "(configured via the ollama CLI)",
   },
 };
+
 function renderUnlock(agents) {
   const box = document.getElementById("unlock");
-  // Find free-tagged entries currently in needs_auth
-  const missing = agents.filter(a =>
-    (a.tags || []).includes("free") && a.state === "needs_auth"
-  );
-  // Group by provider (unique)
+  const missing = agents.filter(a => (a.tags || []).includes("free") && a.state === "needs_auth");
   const providers = [...new Set(missing.map(a => a.provider))];
   if (providers.length === 0) { box.style.display = "none"; return; }
   const rows = providers.map(p => {
     const m = PROVIDER_META[p] || { label: p, pitch: "", signup: "#", env: "?" };
     const count = missing.filter(a => a.provider === p).length;
-    // Ollama-cloud uses its own CLI ('ollama' — no API key input needed),
-    // so its row skips the input + Save and just shows the signup/download link.
     const hasEnvInput = !!m.env && !m.env.startsWith("(");
-    // Shared button metrics so Save + Get-free-key line up pixel-perfect.
-    // 32px total height (7px vertical padding + 14px font + border), 13px font,
-    // min-width so short-text buttons ("Save") do not feel dwarfed next to
-    // long-text ones ("Get free key ↗").
-    const btnStyle = 'display:inline-flex;align-items:center;justify-content:center;height:32px;box-sizing:border-box;padding:0 14px;min-width:110px;font-size:13px;font-weight:600;border-radius:4px;text-decoration:none;white-space:nowrap;border:1px solid transparent;cursor:pointer;';
-    const saveStyle   = btnStyle + 'background:#4a90e2;color:#fff;border-color:#3878c0;';
-    const signupStyle = btnStyle + 'background:#4a8;color:#fff;';
-    const inputStyle  = 'flex:1;min-width:180px;height:32px;box-sizing:border-box;padding:0 10px;border:1px solid #d4b96b;border-radius:4px;font:inherit;';
-
-    const keyInput = hasEnvInput
-      ? '<input id="k-' + m.env + '" type="password" placeholder="paste ' + m.env + ' here" ' +
-        'style="' + inputStyle + '" onkeydown="if(event.key===\\'Enter\\')saveKey(\\'' + m.env + '\\')">' +
-        '<button onclick="saveKey(\\'' + m.env + '\\')" style="' + saveStyle + '">Save</button>' +
-        '<span id="s-' + m.env + '" class="status" style="font-size:12px;"></span>'
-      : '<span style="color:#8a7532;font-size:12px;">' + m.env + '</span>';
-    return '<div class="row" style="display:grid;grid-template-columns:180px 1fr auto;gap:10px 16px;align-items:start;padding:12px 0;border-top:1px solid #e6d78e;">' +
-      '<div><div class="prov">' + m.label + '</div>' +
-      '<div style="font-size:11px;color:#8a7532">+' + count + ' model' + (count>1?"s":"") + ' waiting</div></div>' +
-      '<div><div class="desc" style="margin-bottom:6px;">' + m.pitch + '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' + keyInput + '</div></div>' +
-      '<a class="signup" href="' + m.signup + '" target="_blank" rel="noopener" ' +
-      'style="align-self:center;' + signupStyle + '">Get free key ↗</a>' +
-      '</div>';
+    const keyRow = hasEnvInput
+      ? '<div class="keyrow">' +
+          '<input id="k-' + m.env + '" class="keyinput" type="password" placeholder="paste ' + m.env + '" ' +
+            'onkeydown="if(event.key===\\'Enter\\')saveKey(\\'' + m.env + '\\')">' +
+          '<button class="btn primary" onclick="saveKey(\\'' + m.env + '\\')">Save</button>' +
+        '</div>' +
+        '<span id="s-' + m.env + '" class="status"></span>'
+      : '<span class="status">' + m.env + '</span>';
+    return '<div class="unlock-row">' +
+      '<div>' +
+        '<div class="prov">' + m.label + '</div>' +
+        '<div class="waiting">+' + count + ' model' + (count > 1 ? "s" : "") + ' waiting</div>' +
+      '</div>' +
+      '<div class="pitch">' + m.pitch + '</div>' +
+      '<div>' + keyRow + '</div>' +
+      '<a class="btn signup" href="' + m.signup + '" target="_blank" rel="noopener">Get free key ↗</a>' +
+    '</div>';
   }).join("");
   box.innerHTML =
-    '<h2>Unlock ' + missing.length + ' more free-tier voice' + (missing.length>1?"s":"") + '</h2>' +
-    '<p class="tag">These providers all offer generous free tiers — sign up (60 s, usually no card), set the env var, restart your MCP client. Your dispatch pool gets bigger, round-robin gets deeper, and your bill stays at $0.</p>' +
-    rows +
-    '<p class="footer">Providers with a paid-per-token model (DeepSeek direct API) are excluded here — they don’t have a free tier.</p>';
+    '<h2>Unlock ' + missing.length + ' free-tier model' + (missing.length > 1 ? "s" : "") + '</h2>' +
+    '<p class="tag">These providers offer generous free tiers — sign up (60s, usually no card), paste the key, restart your MCP client. Your dispatch pool grows and your bill stays flat.</p>' +
+    rows;
   box.style.display = "block";
 }
+
 async function saveKey(envName) {
   const inp = document.getElementById("k-" + envName);
   const stat = document.getElementById("s-" + envName);
   const val = (inp.value || "").trim();
-  if (!val) { stat.textContent = "empty value"; stat.className = "status err"; return; }
-  stat.textContent = "saving..."; stat.className = "status";
+  if (!val) { stat.textContent = "empty value"; stat.style.color = "var(--err)"; return; }
+  stat.textContent = "saving…"; stat.style.color = "var(--text-2)";
   try {
     const r = await fetch("/api/set_credential", {
       method: "POST",
@@ -354,33 +660,35 @@ async function saveKey(envName) {
       const nProbed = (j.reprobed || []).length;
       if (v.ok) {
         const ms = v.latencyMs ? " (" + v.latencyMs + "ms)" : "";
-        stat.innerHTML = "<span style=\\"color:#1a6b31;\\">✓ verified" + ms + "</span> — " + nProbed + " model" + (nProbed === 1 ? "" : "s") + " unlocked";
+        stat.innerHTML = '<span style="color:var(--accent);">✓ verified' + ms + '</span> — ' + nProbed + ' model' + (nProbed === 1 ? "" : "s") + ' unlocked';
       } else if (v.hint) {
-        stat.innerHTML = "<span style=\\"color:#9a2b1c;\\">✗ " + v.hint + "</span> — the key was saved but the provider rejected it";
+        stat.innerHTML = '<span style="color:var(--err);">✗ ' + v.hint + '</span> — key saved but provider rejected it';
       } else {
-        stat.innerHTML = "<span style=\\"color:#1a6b31;\\">✓ persisted</span> — " + nProbed + " model" + (nProbed === 1 ? "" : "s") + " unlocked";
+        stat.innerHTML = '<span style="color:var(--accent);">✓ persisted</span> — ' + nProbed + ' model' + (nProbed === 1 ? "" : "s") + ' unlocked';
       }
       inp.value = "";
-      // Immediately refresh the table + banner so freshly-unlocked entries
-      // drop from the banner without a manual page reload. Verified failures
-      // remain in needs_auth so the banner keeps them visible.
       await refresh();
     } else {
       stat.textContent = "error: " + (j.error || r.statusText);
-      stat.className = "status err";
+      stat.style.color = "var(--err)";
     }
   } catch (e) {
     stat.textContent = "network error: " + e.message;
-    stat.className = "status err";
+    stat.style.color = "var(--err)";
   }
 }
+
 async function refresh() {
-  const r = await fetch("/api/state").then(r => r.json());
-  renderUnlock(r.agents);
-  renderRows(r.agents);
+  const [state, stats] = await Promise.all([
+    fetch("/api/state").then(r => r.json()),
+    fetch("/api/stats").then(r => r.json()),
+  ]);
+  renderStats(stats);
+  renderUnlock(state.agents);
+  renderRows(state.agents);
 }
 async function verify(id) {
-  await fetch("/api/probe?id="+encodeURIComponent(id), { method: "POST" });
+  await fetch("/api/probe?id=" + encodeURIComponent(id), { method: "POST" });
   await refresh();
 }
 refresh();
@@ -409,6 +717,10 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  if (req.method === "GET" && p === "/api/stats") {
+    return json(res, 200, computeStats());
+  }
+
   if (req.method === "POST" && p === "/api/set_credential") {
     let body = "";
     req.on("data", (c) => { body += c.toString(); });
@@ -422,16 +734,8 @@ const server = http.createServer(async (req, res) => {
         const persisted = loadKeysFile();
         persisted[env_name] = value;
         saveKeysFile(persisted);
-        // The RUNNING UI process's env is updated too, though the MCP server
-        // is a separate node process — the operator's next MCP call needs a
-        // restart to see it. We tell them so in the response.
         process.env[env_name] = value;
         console.error(`external-agents ui: credential persisted for ${env_name} (${value.length} chars)`);
-        // Re-probe every registry entry that references this env var — either
-        // via its `auth: "env:XYZ"` field or its `transports.generate_new.env`.
-        // Without this, state.json keeps its stale `needs_auth` marker until
-        // the operator restarts the process, and the banner keeps counting
-        // just-unlocked entries as still-locked. State + banner reconcile now.
         const affected = REGISTRY.agents.filter((a) => {
           const authVar = typeof a.auth === "string" && a.auth.startsWith("env:")
             ? a.auth.slice("env:".length).split(/\s+/)[0]
@@ -439,18 +743,11 @@ const server = http.createServer(async (req, res) => {
           const genVar = a.transports?.generate_new?.env || null;
           return authVar === env_name || genVar === env_name;
         });
-        // Two-stage state update:
-        //  1. probeInstalled — cheap sanity check (env var set, binary present)
-        //  2. verifyCredential — REAL API round-trip (~<10s, max_tokens=1)
-        //     against ONE representative entry per (provider × env_name) so we
-        //     confirm the pasted key actually works. Verifying every entry that
-        //     shares the same env var is pointless — they auth the same way.
         const patch = {};
         for (const a of affected) {
           const r = probeInstalled(a);
           patch[a.id] = { ...r, checked: Math.floor(Date.now() / 1000) };
         }
-        // Pick one entry per provider to verify (they all share the same key).
         const seenProviders = new Set();
         const toVerify = affected.filter((a) => {
           if (seenProviders.has(a.provider)) return false;
@@ -461,8 +758,6 @@ const server = http.createServer(async (req, res) => {
           const v = await verifyCredential(a);
           return { agent_id: a.id, provider: a.provider, ...v };
         }));
-        // Propagate a failed verify to every entry in that provider — mark
-        // needs_auth with the failure hint so banner keeps it visible.
         for (const vr of verifyResults) {
           if (!vr.ok) {
             for (const a of affected.filter((x) => x.provider === vr.provider)) {
@@ -492,10 +787,6 @@ const server = http.createServer(async (req, res) => {
     });
     return;
   }
-
-  // NB: /api/suggest was removed — the "Missing your model?" form now opens
-  // a pre-filled GitHub issue on the public tracker directly (no local write
-  // needed, and the local JSONL was write-only, never read).
 
   if ((req.method === "GET" || req.method === "POST") && p === "/api/probe") {
     const id = parsed.query.id;
