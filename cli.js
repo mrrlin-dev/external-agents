@@ -146,7 +146,10 @@ function auditFreshnessHint(rows) {
 
 function cmdStatus(flags) {
   const state = readState();
-  const rows = REGISTRY.agents.map((e) => ({ ...e, ...(state[e.id] || { state: "healthy" }) }));
+  // "unverified", not "healthy" — display-only fallback for an entry
+  // nobody has actually probed yet. pick_agents keeps treating a missing
+  // state.json entry as dispatch-eligible (unaffected by this).
+  const rows = REGISTRY.agents.map((e) => ({ ...e, ...(state[e.id] || { state: "unverified" }) }));
   if (flags.json) {
     console.log(JSON.stringify(rows, null, 2));
     return;

@@ -55,7 +55,16 @@ function stateRows() {
   const state = readState();
   return REGISTRY.agents.map((entry) => ({
     ...entry,
-    ...(state[entry.id] || { state: "healthy" }),
+    // "unverified" — NOT "healthy" — for an entry that has never actually
+    // been probed/dispatched. pick_agents (lib/pick.js) still treats a
+    // missing state.json entry as dispatch-eligible on purpose (a fresh
+    // install with real env-var credentials should just work without
+    // requiring an explicit audit first). But showing "healthy" here for
+    // something nobody has verified is a false positive — a fresh install
+    // with ZERO real credentials rendered all 29 agents "healthy", which
+    // reads as "everything is confirmed working" when nothing has been
+    // tried at all. This fallback is display-only.
+    ...(state[entry.id] || { state: "unverified" }),
   }));
 }
 function findAgent(id) {
@@ -449,6 +458,11 @@ const PAGE = `<!doctype html>
   .pill.errored_transient::before { background: var(--info); }
   .pill.model_unavailable { background: var(--panel-2); color: var(--text-3); border: 1px solid var(--border); }
   .pill.model_unavailable::before { background: var(--text-3); }
+  /* unverified — never probed. Deliberately NOT green: it must not read as
+     a confirmed-working state. Dashed dot + neutral color signal "unknown",
+     distinct from every other (confirmed) state. */
+  .pill.unverified { background: var(--panel-2); color: var(--text-2); border: 1px dashed var(--border); }
+  .pill.unverified::before { background: var(--text-3); border-radius: 1px; }
 
   tr.healthy         td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
   tr.needs_auth      td:first-child,
@@ -458,6 +472,7 @@ const PAGE = `<!doctype html>
   tr.errored_transient td:first-child { box-shadow: inset 2px 0 0 var(--info); }
   tr.model_unavailable td:first-child { box-shadow: inset 2px 0 0 var(--text-3); }
   tr.model_unavailable td:not(:first-child) { opacity: 0.55; }
+  tr.unverified td:first-child { box-shadow: inset 2px 0 0 var(--border); }
 
   /* Tags — proper flex container so pills breathe instead of stacking */
   .tags {
@@ -672,7 +687,7 @@ function fmtUsd(v) {
 let sortKey = localStorage.getItem("sort_key") || "state";
 let sortDir = localStorage.getItem("sort_dir") || "asc";
 const SORT_ORDER = {
-  state: ["healthy", "quota_exhausted", "rate_limited", "needs_auth", "not_installed", "errored_transient", "model_unavailable"],
+  state: ["healthy", "unverified", "quota_exhausted", "rate_limited", "needs_auth", "not_installed", "errored_transient", "model_unavailable"],
   tier:  ["strong", "weak"],
 };
 function sortAgents(agents, statsByAgent) {
