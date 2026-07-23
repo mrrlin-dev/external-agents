@@ -53,19 +53,23 @@ const PORT = Number(process.env.EXTERNAL_AGENTS_UI_PORT) || 4711;
 
 function stateRows() {
   const state = readState();
-  return REGISTRY.agents.map((entry) => ({
-    ...entry,
-    // "unverified" — NOT "healthy" — for an entry that has never actually
-    // been probed/dispatched. pick_agents (lib/pick.js) still treats a
-    // missing state.json entry as dispatch-eligible on purpose (a fresh
-    // install with real env-var credentials should just work without
-    // requiring an explicit audit first). But showing "healthy" here for
-    // something nobody has verified is a false positive — a fresh install
-    // with ZERO real credentials rendered all 29 agents "healthy", which
-    // reads as "everything is confirmed working" when nothing has been
-    // tried at all. This fallback is display-only.
-    ...(state[entry.id] || { state: "unverified" }),
-  }));
+  return REGISTRY.agents.map((entry) => {
+    if (state[entry.id]) return { ...entry, ...state[entry.id] };
+    // No persisted state — this entry has never been probed OR dispatched.
+    // Falling back to a static "healthy" (the old behavior) was a false
+    // positive: a fresh install with zero credentials rendered everything
+    // green. Falling back to a static "unverified" fixed that lie but
+    // introduced a worse regression — the unlock banner only surfaces
+    // entries in `needs_auth`, so an apikey entry that's missing its env
+    // var became invisible to the ONE UI element that lets you paste a key.
+    // The right default is the cheap, synchronous, network-free
+    // probeInstalled() check (same one /api/probe and `external-agents
+    // probe` already use) — it correctly reports needs_auth when the env
+    // var is absent (banner picks it up, key input appears), healthy when
+    // present (optimistic-but-reasonable, matches pick_agents' own
+    // eligibility rule), and not_installed when a CLI binary is missing.
+    return { ...entry, ...probeInstalled(entry) };
+  });
 }
 function findAgent(id) {
   return REGISTRY.agents.find((a) => a.id === id);
@@ -335,6 +339,35 @@ const PAGE = `<!doctype html>
   }
   .unlock-row .pitch { color: var(--text-2); font-size: 13px; }
   .unlock-row .keyrow { display: flex; gap: 8px; align-items: center; }
+
+  /* CLI setup banner — accent-blue left border to distinguish from the
+     green api-key unlock banner. Same grid as unlock-row. */
+  .cli-setup { border-left: 3px solid var(--info); }
+  .cli-setup-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 190px) 1fr auto;
+    gap: 12px 20px;
+    align-items: start;
+    padding: 14px 0;
+    border-top: 1px solid var(--border-2);
+  }
+  .cli-setup-row:first-of-type { border-top: none; padding-top: 6px; }
+  .cli-setup-row .prov { font-weight: 600; color: var(--text); font-size: 13.5px; }
+  .cli-setup-row .waiting { font-size: 11px; color: var(--text-3); margin-top: 2px; font-family: var(--mono); }
+  .cli-setup-row .pitch { color: var(--text-2); font-size: 13px; margin-bottom: 8px; }
+  .cli-cmds { display: flex; flex-direction: column; gap: 6px; }
+  .cli-cmd-row { display: flex; align-items: center; gap: 8px; }
+  .cli-cmd-label { font-size: 11px; color: var(--text-3); min-width: 64px; }
+  .cli-cmd {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px;
+    padding: 4px 8px; cursor: pointer; user-select: none;
+    white-space: nowrap; overflow-x: auto; max-width: 100%;
+  }
+  .cli-cmd:hover { border-color: var(--info); }
+  .cli-cmd.copied { color: var(--accent); border-color: var(--accent); }
+  .cli-installed-tag { font-size: 11px; color: var(--accent); font-family: var(--mono); align-self: center; white-space: nowrap; }
   .unlock-row .keyinput {
     flex: 1; height: 32px; box-sizing: border-box;
     padding: 0 10px;
@@ -604,6 +637,7 @@ const PAGE = `<!doctype html>
 
   <div id="audit-nag" class="audit-nag" style="display:none"></div>
   <div id="unlock" class="unlock" style="display:none"></div>
+  <div id="cli-setup" class="unlock cli-setup" style="display:none"></div>
 
   <div class="controls">
     <div class="left">
@@ -849,6 +883,17 @@ function esc(s) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   })[ch]);
 }
+// Click-to-copy for the CLI login commands. Copies the element's text (minus
+// any trailing "# comment"), flashes a "copied" state on the <code> element.
+function copyCmd(el) {
+  const raw = el.textContent.replace(/\s*#.*$/, "").trim();
+  navigator.clipboard.writeText(raw).then(() => {
+    const prev = el.textContent;
+    el.classList.add("copied");
+    el.textContent = "✓ copied";
+    setTimeout(() => { el.textContent = prev; el.classList.remove("copied"); }, 1000);
+  }).catch(() => {});
+}
 async function toggleAgent(id, enabled) {
   await fetch("/api/toggle", {
     method: "POST",
@@ -981,6 +1026,103 @@ const PROVIDER_META = {
   },
 };
 
+// Per-CLI setup metadata — install link + auth step. Keyed by provider.
+// Parallel to PROVIDER_META (which handles api-key providers): this drives the
+// CLI-setup banner for agents whose auth is cli-based and are currently
+// not_installed (need to install the binary) or needs_auth (installed but not
+// logged in). These are subscription CLIs, so there is no API key to paste —
+// the operator installs a binary and authenticates it once.
+// NB: no backticks in this comment — it lives inside the PAGE template literal.
+const CLI_META = {
+  openai: {
+    label: "Codex (OpenAI)",
+    pitch: "ChatGPT-plan coding agent. Runs headless via codex exec.",
+    installUrl: "https://github.com/openai/codex#installation",
+    auth: "codex login",
+  },
+  anthropic: {
+    label: "Claude Code",
+    pitch: "Claude subscription CLI. Runs headless via claude --print.",
+    installUrl: "https://docs.claude.com/en/docs/claude-code/setup",
+    auth: "claude login",
+  },
+  cursor: {
+    label: "Cursor Agent",
+    pitch: "Cursor's agentic CLI (Pro plan for real usage).",
+    installUrl: "https://docs.cursor.com/en/cli/overview",
+    auth: "cursor-agent login",
+  },
+  sst: {
+    label: "opencode",
+    pitch: "SST's open-source agentic CLI.",
+    installUrl: "https://opencode.ai/docs/",
+    auth: "opencode auth login",
+  },
+  kiro: {
+    label: "Kiro (AWS)",
+    pitch: "AWS Kiro agentic CLI. Free monthly tier.",
+    installUrl: "https://kiro.dev/downloads/",
+    auth: "kiro-cli login",
+  },
+  "ollama-cloud": {
+    label: "Ollama Cloud",
+    pitch: "gpt-oss 20B/120B via the local Ollama daemon → cloud proxy.",
+    installUrl: "https://ollama.com/download",
+    auth: "ollama signin   # then: ollama pull gpt-oss:120b-cloud",
+  },
+};
+
+// CLI setup banner — mirrors the api-key unlock banner but for subscription
+// CLIs. Surfaces cli-auth agents that are not_installed (need install) or
+// needs_auth (installed, need login). Install is a LINK (the "Install ↗"
+// button, parallel to the api-key banner's "Get free key ↗"), because install
+// steps differ per OS/arch and are better handled on the tool's own page. The
+// login step is a copy-pasteable command since that IS the actionable local
+// action once the binary is present.
+function renderCliSetup(agents) {
+  const box = document.getElementById("cli-setup");
+  const needsSetup = agents.filter(a =>
+    typeof a.auth === "string" && a.auth.startsWith("cli:") &&
+    (a.state === "not_installed" || a.state === "needs_auth") &&
+    a.enabled !== false
+  );
+  const providers = [...new Set(needsSetup.map(a => a.provider))];
+  if (providers.length === 0) { box.style.display = "none"; return; }
+  const rows = providers.map(p => {
+    const m = CLI_META[p] || { label: p, pitch: "", installUrl: "#", auth: "" };
+    const list = needsSetup.filter(a => a.provider === p);
+    const count = list.length;
+    const anyMissing = list.some(a => a.state === "not_installed");
+    // not_installed → the install link is step 1, login step 2. Already
+    // installed (needs_auth) → login is the only step.
+    const authRow = m.auth
+      ? '<div class="cli-cmd-row">' +
+          '<span class="cli-cmd-label">' + (anyMissing ? "then log in" : "log in") + '</span>' +
+          '<code class="cli-cmd" title="click to copy" onclick="copyCmd(this)">' + esc(m.auth) + '</code>' +
+        '</div>'
+      : '';
+    return '<div class="cli-setup-row">' +
+      '<div>' +
+        '<div class="prov">' + m.label + '</div>' +
+        '<div class="waiting">' + count + ' model' + (count > 1 ? "s" : "") + ' · ' +
+          (anyMissing ? "not installed" : "needs login") + '</div>' +
+      '</div>' +
+      '<div>' +
+        '<div class="pitch">' + m.pitch + '</div>' +
+        '<div class="cli-cmds">' + authRow + '</div>' +
+      '</div>' +
+      (anyMissing
+        ? '<a class="btn signup" href="' + m.installUrl + '" target="_blank" rel="noopener">Install ↗</a>'
+        : '<span class="cli-installed-tag">✓ installed</span>') +
+    '</div>';
+  }).join("");
+  box.innerHTML =
+    '<h2>Set up ' + providers.length + ' CLI agent' + (providers.length > 1 ? "s" : "") + '</h2>' +
+    '<p class="tag">These are subscription/agentic CLIs — no API key to paste. Install the binary (link), log in once (copy the command), then restart your MCP client.</p>' +
+    rows;
+  box.style.display = "block";
+}
+
 function renderUnlock(agents) {
   const box = document.getElementById("unlock");
   // Only surface entries that pasting a key will actually unlock. Skip:
@@ -1065,6 +1207,7 @@ async function refresh() {
   ]);
   renderStats(stats);
   renderUnlock(state.agents);
+  renderCliSetup(state.agents);
   renderRows(state.agents, stats.by_agent);
 }
 async function verify(id) {

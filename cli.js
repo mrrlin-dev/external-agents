@@ -146,10 +146,12 @@ function auditFreshnessHint(rows) {
 
 function cmdStatus(flags) {
   const state = readState();
-  // "unverified", not "healthy" — display-only fallback for an entry
-  // nobody has actually probed yet. pick_agents keeps treating a missing
-  // state.json entry as dispatch-eligible (unaffected by this).
-  const rows = REGISTRY.agents.map((e) => ({ ...e, ...(state[e.id] || { state: "unverified" }) }));
+  // No persisted state → run the cheap, synchronous, network-free
+  // probeInstalled() check instead of a static fallback string. Reports
+  // needs_auth when an env var is absent, healthy when present, and
+  // not_installed for a missing CLI binary — matches what `external-agents
+  // probe <id>` would actually find, without a live API round-trip.
+  const rows = REGISTRY.agents.map((e) => state[e.id] ? { ...e, ...state[e.id] } : { ...e, ...probeInstalled(e) });
   if (flags.json) {
     console.log(JSON.stringify(rows, null, 2));
     return;
