@@ -25,3 +25,6 @@ package-lock.json
 # tmp
 tmp/
 *.tmp
+
+# local CLI caches created by probing edit_exists CLIs during audit/dev
+.opencode/
