@@ -35,6 +35,11 @@ const REGISTRY_PATH = path.join(path.dirname(new URL(import.meta.url).pathname),
 const REGISTRY = loadRegistry(REGISTRY_PATH);
 
 // --- argv parsing helpers -----------------------------------------
+// Boolean flags never consume the following token. Without this list a value-
+// taking parser turns `dispatch <id> --json "prompt"` into {json:"prompt"} and
+// eats the positional — the prompt vanishes ("missing prompt"). Same latent
+// trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
+const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force"]);
 function parseArgs(argv) {
   const args = [];
   const flags = {};
@@ -43,7 +48,7 @@ function parseArgs(argv) {
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const nxt = argv[i + 1];
-      if (nxt !== undefined && !nxt.startsWith("--")) { flags[key] = nxt; i++; }
+      if (!BOOLEAN_FLAGS.has(key) && nxt !== undefined && !nxt.startsWith("--")) { flags[key] = nxt; i++; }
       else flags[key] = true;
     } else args.push(a);
   }
@@ -55,21 +60,55 @@ function findAgent(id) { return REGISTRY.agents.find((a) => a.id === id); }
 // --- subcommands --------------------------------------------------
 function cmdPick(flags) {
   const n = parseInt(flags.n || "1", 10);
-  const filter = {};
-  if (flags.tier) filter.tier = flags.tier;
-  if (flags.tags) filter.tags = String(flags.tags).split(",").filter(Boolean);
-  if (flags.exclude) filter.exclude_ids = String(flags.exclude).split(",").filter(Boolean);
+  const baseFilter = {};
+  if (flags.tags) baseFilter.tags = String(flags.tags).split(",").filter(Boolean);
+  if (flags.exclude) baseFilter.exclude_ids = String(flags.exclude).split(",").filter(Boolean);
   if (flags["exclude-providers"]) {
     const providers = new Set(String(flags["exclude-providers"]).split(",").filter(Boolean));
     const ids = REGISTRY.agents.filter((a) => providers.has(a.provider)).map((a) => a.id);
-    filter.exclude_ids = [...(filter.exclude_ids || []), ...ids];
+    baseFilter.exclude_ids = [...(baseFilter.exclude_ids || []), ...ids];
   }
-  if (flags.transport) filter.transport = flags.transport;
-  const picked = pickAgents(REGISTRY, readState(), {
-    n,
-    filter,
-    min_distinct_providers: flags["min-distinct-providers"] ? parseInt(flags["min-distinct-providers"], 10) : undefined,
-  });
+  if (flags.transport) baseFilter.transport = flags.transport;
+  const minDistinct = flags["min-distinct-providers"] ? parseInt(flags["min-distinct-providers"], 10) : undefined;
+  const state = readState();
+
+  // --tier-prefer <t>: return exactly N, preferring tier <t>, then backfilling
+  // the OTHER tier for any unfilled slots — keeping cross-provider diversity
+  // across the whole panel. This is mrrlin's consensus degrade ladder (ADR 0022
+  // D2: strong preferred, weak rather than a smaller panel) in a single call.
+  // --tier <t> stays the strict single-tier filter.
+  if (flags["tier-prefer"]) {
+    const prefer = String(flags["tier-prefer"]);
+    const other = prefer === "strong" ? "weak" : "strong";
+    const primary = pickAgents(REGISTRY, state, {
+      n, filter: { ...baseFilter, tier: prefer }, min_distinct_providers: minDistinct,
+    });
+    let out = [...primary];
+    if (out.length < n) {
+      // Backfill from the other tier, excluding already-picked ids AND their
+      // providers so the panel stays provider-diverse.
+      const usedProviders = new Set(primary.map((id) => findAgent(id)?.provider).filter(Boolean));
+      const backfillExclude = [
+        ...(baseFilter.exclude_ids || []),
+        ...primary,
+        ...REGISTRY.agents.filter((a) => usedProviders.has(a.provider)).map((a) => a.id),
+      ];
+      const remainingDistinct = minDistinct != null ? Math.max(0, minDistinct - usedProviders.size) : undefined;
+      const backfill = pickAgents(REGISTRY, state, {
+        n: n - out.length,
+        filter: { ...baseFilter, tier: other, exclude_ids: backfillExclude },
+        min_distinct_providers: remainingDistinct,
+      });
+      out = [...out, ...backfill];
+    }
+    if (out.length === 0) process.exit(3);
+    for (const id of out) console.log(id);
+    return;
+  }
+
+  const filter = { ...baseFilter };
+  if (flags.tier) filter.tier = flags.tier;
+  const picked = pickAgents(REGISTRY, state, { n, filter, min_distinct_providers: minDistinct });
   if (picked.length === 0) process.exit(3);
   for (const id of picked) console.log(id);
 }
@@ -117,10 +156,31 @@ async function cmdDispatch(args, flags) {
   }
   if (statePatch) writeState(statePatch);
 
-  process.stdout.write(result.output);
-  const trailer = { agent_id: entry.id, outcome, exit_code: result.exitCode, duration_ms: result.durationMs, workdir: result.workdir, files: result.files };
-  if (escalatedFrom) trailer.escalated_from = escalatedFrom;
-  console.error("__EXTERNAL_AGENTS_TRAILER__ " + JSON.stringify(trailer));
+  // --json: emit ONE structured object to stdout and nothing else — for
+  // programmatic callers (mrrlin's runMultiHead, ADR 0022) that need
+  // {text, outcome, tokens, …} without scraping free text from stdout and the
+  // trailer from stderr separately. Default (human/shell) keeps the text-on-
+  // stdout + trailer-on-stderr shape wrappers already rely on.
+  if (flags.json) {
+    const payload = {
+      agent_id: entry.id,
+      outcome,
+      exit_code: result.exitCode,
+      duration_ms: result.durationMs,
+      tokens_in: result.tokens_in ?? null,
+      tokens_out: result.tokens_out ?? null,
+      text: result.output,
+      workdir: result.workdir,
+      files: result.files,
+    };
+    if (escalatedFrom) payload.escalated_from = escalatedFrom;
+    process.stdout.write(JSON.stringify(payload) + "\n");
+  } else {
+    process.stdout.write(result.output);
+    const trailer = { agent_id: entry.id, outcome, exit_code: result.exitCode, duration_ms: result.durationMs, workdir: result.workdir, files: result.files };
+    if (escalatedFrom) trailer.escalated_from = escalatedFrom;
+    console.error("__EXTERNAL_AGENTS_TRAILER__ " + JSON.stringify(trailer));
+  }
 
   process.exit(outcome === "success" ? 0 : (outcome === "quota_exhausted" ? 4 : 1));
 }
@@ -456,8 +516,10 @@ switch (subcmd) {
   case "--help":
   case undefined:
     console.error(`external-agents CLI — subcommands:
-  pick [--tier T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists]
-  dispatch <agent-id> [--pro] [--transport generate_new|edit_exists] "<prompt>"
+  pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists]
+       (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
+  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] "<prompt>"
+       (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
   status [--json]
   probe <agent-id>
   stats [--since ISO] [--json]
