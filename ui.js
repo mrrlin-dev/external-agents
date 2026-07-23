@@ -63,10 +63,19 @@ function findAgent(id) {
 // provider is counted as tokens_total × $3/M saved. Not marketing spin —
 // honestly labeled as "vs Claude Sonnet input" in the UI.
 const SAVED_ANCHOR_PER_M = 3.0;
+const AUDIT_STALE_DAYS = 7;
 function computeStats() {
   const rows = stateRows();
   const healthy = rows.filter((r) => r.state === "healthy").length;
   const locked  = rows.filter((r) => r.state === "needs_auth").length;
+  // Audit freshness — oldest `checked` timestamp = when we last confirmed
+  // each entry is real. 0 (never audited) or > 7 days = nag the operator.
+  const stamps = rows.map((r) => r.checked || 0).filter((t) => t > 0);
+  const oldestChecked = stamps.length ? Math.min(...stamps) : 0;
+  const auditAgeDays  = oldestChecked
+    ? Math.floor((Date.now() / 1000 - oldestChecked) / 86400)
+    : null;
+  const auditStale = auditAgeDays === null || auditAgeDays >= AUDIT_STALE_DAYS;
   const s24 = getStats(new Date(Date.now() - 24 * 3600 * 1000).toISOString());
   const dispatches24 = s24.total || 0;
   const tokensAll = Object.values(s24.by_agent || {})
@@ -90,6 +99,12 @@ function computeStats() {
     saved_anchor:   SAVED_ANCHOR_PER_M,
     // Per-agent aggregates so the UI can surface last_error inline per row.
     by_agent: s24.by_agent || {},
+    // Audit freshness — UI shows a small nag when this is true.
+    audit: {
+      stale: auditStale,
+      age_days: auditAgeDays,
+      threshold_days: AUDIT_STALE_DAYS,
+    },
   };
 }
 
@@ -257,6 +272,21 @@ const PAGE = `<!doctype html>
     content: ""; position: absolute; inset: 0; pointer-events: none;
     box-shadow: inset 3px 0 0 var(--warn);
   }
+
+  /* ---------- Audit-freshness nag ---------- */
+  .audit-nag {
+    background: var(--panel);
+    border: 1px solid var(--info-2);
+    border-left: 3px solid var(--info);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    font-size: 13px; color: var(--text);
+  }
+  .audit-nag .msg { color: var(--text-2); }
+  .audit-nag code { color: var(--text); background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
 
   /* ---------- Unlock banner ---------- */
   .unlock {
@@ -527,6 +557,7 @@ const PAGE = `<!doctype html>
     </div>
   </section>
 
+  <div id="audit-nag" class="audit-nag" style="display:none"></div>
   <div id="unlock" class="unlock" style="display:none"></div>
 
   <div class="controls">
@@ -781,7 +812,19 @@ async function submitAddModel() {
   }
 }
 
+function renderAuditNag(audit) {
+  const box = document.getElementById("audit-nag");
+  if (!audit || !audit.stale) { box.style.display = "none"; return; }
+  const msg = audit.age_days === null
+    ? "No audit has ever run — you don't know whether these models still exist."
+    : ("Oldest audit is " + audit.age_days + " day" + (audit.age_days === 1 ? "" : "s") + " old — providers deprecate models silently.");
+  box.innerHTML =
+    '<span class="msg">' + msg + '</span>' +
+    '<code>external-agents audit</code>';
+  box.style.display = "flex";
+}
 function renderStats(s) {
+  renderAuditNag(s.audit);
   document.getElementById("s-healthy").textContent = s.healthy_count;
   document.getElementById("s-healthy-foot").textContent = "of " + s.total_count + " total";
   document.getElementById("s-locked").textContent = s.locked_count;

@@ -125,6 +125,25 @@ async function cmdDispatch(args, flags) {
   process.exit(outcome === "success" ? 0 : (outcome === "quota_exhausted" ? 4 : 1));
 }
 
+// Show a hint line at the bottom of status/UI when the audit hasn't run
+// recently — the oldest `checked` timestamp across all entries is our proxy
+// for "when did we last verify these are still real". > 7 days → nag.
+// Written as a stderr line so LLM operators reading the tool output pick it
+// up and can act on it without clobbering json output.
+const AUDIT_STALE_DAYS = 7;
+function auditFreshnessHint(rows) {
+  const stamps = rows.map((r) => r.checked || 0).filter((t) => t > 0);
+  if (stamps.length === 0) {
+    return "hint: no audit has ever run. Run 'external-agents audit' to verify model availability.";
+  }
+  const oldest = Math.min(...stamps);
+  const ageDays = Math.floor((Date.now() / 1000 - oldest) / 86400);
+  if (ageDays >= AUDIT_STALE_DAYS) {
+    return `hint: oldest audit is ${ageDays} days old — run 'external-agents audit' to refresh model availability (providers deprecate models silently).`;
+  }
+  return null;
+}
+
 function cmdStatus(flags) {
   const state = readState();
   const rows = REGISTRY.agents.map((e) => ({ ...e, ...(state[e.id] || { state: "healthy" }) }));
@@ -138,6 +157,11 @@ function cmdStatus(flags) {
   for (const r of rows) {
     const tagsStr = (r.tags || []).join(",");
     console.log(`${r.id.padEnd(w)} ${(r.state || "?").padEnd(18)} ${(r.tier || "-").padEnd(7)} ${tagsStr}`);
+  }
+  const hint = auditFreshnessHint(rows);
+  if (hint) {
+    console.log();
+    console.error(hint);
   }
 }
 
