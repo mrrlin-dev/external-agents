@@ -163,24 +163,10 @@ agents:
         model: deepseek-v4-pro
       edit_exists: "aider --model deepseek/deepseek-v4-pro"
 
-  # ============ Z.ai (GLM) — OpenAI-compat with per-entry env override ============
-  - id: glm-4.7
-    provider: zai
-    model: glm-4.7
-    quota_scope: shared
-    tier: weak
-    tags: [quick, free]
-    auth: "env:ZAI_API_KEY (or ~/.claude/state/zai.key)"
-    preference_order: 15
-    usage_url: "https://z.ai/manage-apikey/apikey-list"
-    transports:
-      generate_new:
-        url: "https://api.z.ai/api/paas/v4/chat/completions"
-        env: OPENAI_API_KEY   # per-entry override below routes the AIza… key here
-        model: glm-4.7
-      edit_exists: "aider --model openai/glm-4.7 --openai-api-base https://api.z.ai/api/paas/v4"
-    env:
-      OPENAI_API_KEY: "@file:~/.claude/state/zai.key"
+  # Z.ai (GLM) removed — glm-4.7 (formerly glm-4.7-flash) now requires a
+  # paid Z.ai plan or resource package, mirroring the Cerebras situation
+  # (0.13.0). Users on a paid Z.ai plan can restore locally via
+  # `external-agents add-model --provider zai ...`.
 
   # ============ Groq — free tier, ~500-800 tok/s ============
   - id: groq-llama-3.3-70b

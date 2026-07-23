@@ -9,7 +9,7 @@
 
 ![architecture: primary agent → external-agents → six free-tier providers, one pool of tokens](docs/hero.png)
 
-Your Google + Groq + OpenRouter + Z.ai + Ollama Cloud free tiers all have **separate quota buckets**. `external-agents` treats them as one pool: round-robin dispatch, cooldown-aware, auto-fallback on 429. Same agentic workload that used to cost $10-100/day on one paid model runs at effectively $0. Also the perfect substrate for [LLM-Council](https://github.com/karpathy/llm-council)-style multi-model panels — `pick_agents` gives you N distinct-provider picks in one call.
+Your Google + Groq + OpenRouter + Ollama Cloud free tiers all have **separate quota buckets**. `external-agents` treats them as one pool: round-robin dispatch, cooldown-aware, auto-fallback on 429. Same agentic workload that used to cost $10-100/day on one paid model runs at effectively $0. Also the perfect substrate for [LLM-Council](https://github.com/karpathy/llm-council)-style multi-model panels — `pick_agents` gives you N distinct-provider picks in one call.
 
 ---
 
@@ -61,14 +61,14 @@ Your primary agent (Claude Code, Codex, Cursor) gets these as MCP tools automati
 |---|---|---|
 | **Gemini** (Google AI Studio) | **Groq** | **OpenRouter** :free |
 | 7 model variants, per-model quota | 4 models incl. gpt-oss 120B/20B | 6 :free models incl. Nvidia Nemotron 550B |
-| **Z.ai (GLM)** | **Ollama Cloud** | **DeepSeek** |
-| glm-4.7 free tier | gpt-oss 20B/120B via local daemon | Cheap direct API (v4-flash + v4-pro) |
-| **Anthropic Claude** | **Codex** | **cursor-agent** |
-| Subscription (Opus + Sonnet) | Subscription (GPT-5) | CLI agentic reviewer |
-| **opencode** | **kiro-cli** | |
-| CLI agentic reviewer | AWS Kiro headless | |
+| **Ollama Cloud** | **DeepSeek** | **Anthropic Claude** |
+| gpt-oss 20B/120B via local daemon | Cheap direct API (v4-flash + v4-pro) | Subscription (Opus 4.8/4.7 + Sonnet 5 + Haiku 4.5) |
+| **Codex** | **cursor-agent** | **opencode** |
+| Subscription (GPT-5 family) | CLI agentic reviewer | CLI agentic reviewer |
+| **kiro-cli** | | |
+| AWS Kiro headless | | |
 
-_Cerebras dropped in 0.13.0 — no usable free tier remains. Add locally via `add-model` if you have a paid plan._
+_Cerebras dropped in 0.13.0 and Z.ai in this release — both require paid plans now, no usable free tier. Add locally via `add-model` if you have a paid plan._
 
 Missing a provider? [Suggest it](https://github.com/mrrlin-dev/external-agents/issues/new?labels=missing-model) — the built-in UI has a form that opens a pre-filled issue.
 

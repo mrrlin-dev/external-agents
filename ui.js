@@ -472,9 +472,10 @@ const PAGE = `<!doctype html>
     color: var(--accent); opacity: 0.85;
   }
   /* One access-mode tag per row, derived from auth type. Mutually exclusive
-     (cli for subscription CLIs, apikey for env-var API keys). */
-  .badge.cli    { background: rgba(88,166,255,.12); color: var(--info); border-color: transparent; }
-  .badge.apikey { background: rgba(139,148,158,.15); color: var(--text-2); border-color: transparent; }
+     (cli for subscription CLIs, apikey for env-var API keys). Both colored — cli
+     blue, apikey purple — so the auth surface is scannable at a glance. */
+  .badge.cli    { background: rgba(88,166,255,.14); color: var(--info); border-color: transparent; }
+  .badge.apikey { background: rgba(163,113,247,.16); color: #a371f7; border-color: transparent; }
 
   /* ---------- Suggest form ---------- */
   .suggest {
