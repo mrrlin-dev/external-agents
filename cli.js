@@ -293,15 +293,53 @@ function cmdInit(flags) {
 // GitHub) — we decided the source-of-truth is the bundled registry via
 // `npm i -g @latest`, and what actually matters day-to-day is knowing
 // whether YOUR account still has access to each model.
+// Probe a CLI-transport entry by actually invoking the CLI headless with a
+// tiny prompt, then regex-classifying stderr/output. Same pattern as the
+// runAny post-dispatch detector in 0.20.0, but proactive — audit surfaces
+// quota/auth without waiting for a real dispatch to fail.
+async function auditCliEntry(entry) {
+  const cmd = entry.transports?.edit_exists;
+  if (!cmd) return { ok: false, hint: "no edit_exists transport" };
+  const start = Date.now();
+  return new Promise((resolve) => {
+    // Use shell so `env -u ...` prefixes (claude entries) and pipes work.
+    const child = spawn("bash", ["-c", `echo | ${cmd} "reply exactly OK"`], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+    });
+    let out = "", err = "";
+    child.stdout.on("data", (d) => { out += d.toString(); if (out.length > 4000) out = out.slice(-4000); });
+    child.stderr.on("data", (d) => { err += d.toString(); if (err.length > 4000) err = err.slice(-4000); });
+    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 20000);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const latencyMs = Date.now() - start;
+      const preview = (err + "\n" + out).trim();
+      const isQuota = /monthly.{0,20}(request )?limit reached|usage limit|hit your usage limit|quota exhausted|rate.limit|too many requests/i.test(preview);
+      const isAuth = /not logged in|please run \/login|authorizationrequired|authentication failed|unauthenticated|401 unauthorized|invalid.{0,20}api key|revoked/i.test(preview);
+      // Older codex CLI hits "requires a newer version" — treat as errored_transient
+      // (not model_unavailable, because model exists — just this CLI can't reach it).
+      if (code === 0) return resolve({ ok: true, latencyMs });
+      if (isQuota)   return resolve({ ok: false, quotaExhausted: true, hint: extractLine(preview, /monthly.{0,60}limit reached|usage limit.{0,60}/i), latencyMs });
+      if (isAuth)    return resolve({ ok: false, needsAuth: true, hint: extractLine(preview, /not logged in.{0,60}|please run \/login|authorizationrequired|invalid.{0,40}api key.{0,40}/i), latencyMs });
+      resolve({ ok: false, hint: (preview.split("\n").filter(l => l.trim()).pop() || `exit ${code}`).slice(0, 200), latencyMs });
+    });
+  });
+}
+function extractLine(text, re) {
+  const m = text.match(re);
+  return m ? m[0].trim().slice(0, 200) : text.split("\n").filter(l => l.trim()).pop()?.slice(0, 200);
+}
+
 async function cmdAudit(flags) {
   const providerFilter = flags.provider ? String(flags.provider) : null;
   const asJson = flags.json === true;
   const entries = REGISTRY.agents.filter((a) =>
     (!providerFilter || a.provider === providerFilter) &&
-    a.transports?.generate_new?.url
+    (a.transports?.generate_new?.url || a.transports?.edit_exists)
   );
   if (entries.length === 0) {
-    die(`audit: no entries match${providerFilter ? ` provider=${providerFilter}` : ""} (only generate_new-capable entries can be audited)`, 3);
+    die(`audit: no entries match${providerFilter ? ` provider=${providerFilter}` : ""}`, 3);
   }
 
   const results = [];
@@ -315,15 +353,23 @@ async function cmdAudit(flags) {
     Object.values(byProvider).map(async (batch) => {
       const out = [];
       for (const entry of batch) {
-        const v = await verifyCredential(entry);
+        const hasApi = !!entry.transports?.generate_new?.url;
+        // Prefer HTTP verifyCredential — faster, cheaper. Fall back to CLI
+        // headless invocation for cli-only entries (codex, claude, cursor-agent,
+        // opencode, kiro) so quota/auth surface in audit like everything else.
+        const v = hasApi
+          ? await verifyCredential(entry)
+          : await auditCliEntry(entry);
         const outcome =
           v.ok                       ? "healthy"
           : v.modelUnavailable       ? "model_unavailable"
+          : v.quotaExhausted         ? "quota_exhausted"
+          : v.needsAuth              ? "needs_auth"
           : v.status === 401 || v.status === 403 ? "needs_auth"
           : v.status === 429         ? "rate_limited"
           : "errored_transient";
         const note =
-          v.ok            ? `verified (${v.latencyMs}ms)`
+          v.ok            ? `verified (${v.latencyMs}ms)${hasApi ? "" : " (cli)"}`
           : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
           : `HTTP ${v.status || "?"}`;
         // Deep-merge so probe metadata (last_used_at, enabled flag) survives.
@@ -353,7 +399,7 @@ async function cmdAudit(flags) {
   const w = { id: 34, provider: 12, outcome: 20, note: 60 };
   console.log(pad("agent", w.id) + pad("provider", w.provider) + pad("verdict", w.outcome) + "note");
   console.log("-".repeat(w.id + w.provider + w.outcome + w.note));
-  const sym = { healthy: "✓", needs_auth: "⚠", model_unavailable: "✗", rate_limited: "⏳", errored_transient: "?" };
+  const sym = { healthy: "✓", needs_auth: "⚠", model_unavailable: "✗", rate_limited: "⏳", quota_exhausted: "⏳", errored_transient: "?" };
   for (const r of results) {
     console.log(
       pad(r.id, w.id) +
