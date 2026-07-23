@@ -532,7 +532,7 @@ const PAGE = `<!doctype html>
 
   /* Verify (row-level "run") button — clicks a live audit against ONE agent,
      shows loading + outcome inline before the row redraws. */
-  .verify-btn { height: 26px; padding: 0 10px; font-size: 11px; min-width: 68px; }
+  .verify-btn { height: 26px; padding: 0 10px; font-size: 11px; min-width: 68px; margin-top: 4px; }
   .verify-btn:disabled { opacity: 0.7; cursor: wait; }
 
   /* ---------- Suggest form ---------- */
@@ -854,7 +854,7 @@ function renderRows(agents, statsByAgent) {
         (a.usage_url
           ? '<a href="' + a.usage_url + '" target="_blank" rel="noopener">usage ↗</a> '
           : '') +
-        '<button class="btn verify-btn" id="vb-' + a.id.replace(/[^a-z0-9]/gi, '_') + '" onclick="verify(\\'' + a.id + '\\')" title="Live probe — dispatch a tiny prompt and update state">run</button>' +
+        '<button class="btn verify-btn" id="vb-' + a.id.replace(/[^a-z0-9]/gi, '_') + '" onclick="verify(\\'' + a.id + '\\')" title="Live probe — dispatch a tiny prompt and update state">run probe</button>' +
       '</td>';
     tbody.appendChild(tr);
   }
