@@ -444,18 +444,30 @@ const PAGE = `<!doctype html>
   tr.model_unavailable td:first-child { box-shadow: inset 2px 0 0 var(--text-3); }
   tr.model_unavailable td:not(:first-child) { opacity: 0.55; }
 
-  /* Tags */
+  /* Tags — proper flex container so pills breathe instead of stacking */
+  .tags {
+    display: inline-flex; flex-wrap: wrap; gap: 4px 5px;
+    align-items: center;
+  }
   .badge {
     display: inline-block; padding: 1px 7px; border-radius: 10px;
     background: var(--panel-2); border: 1px solid var(--border-2);
     color: var(--text-2); font-size: 10.5px; font-weight: 500;
-    margin-right: 3px; font-family: var(--mono);
+    font-family: var(--mono); line-height: 1.4;
   }
+  /* Muted free tag — subtle green background, no dollar-sign prefix, weight
+     unchanged. Signals free-tier without shouting over the row. */
   .badge.free {
-    background: var(--accent-2); border-color: transparent; color: var(--accent);
-    font-weight: 600;
+    background: var(--accent-2); border-color: transparent;
+    color: var(--accent); opacity: 0.85;
   }
-  .badge.free::before { content: "$0 "; opacity: 0.7; }
+  /* Access-mode tags — derived from transport shape at render time so we
+     don't duplicate this info in agents.yaml. Each mode gets a distinct
+     hue so scanning a big table for CLI-only vs API-backed is one glance. */
+  .badge.cli          { background: rgba(88,166,255,.12); color: var(--info); border-color: transparent; }
+  .badge.api          { background: rgba(163,113,247,.14); color: #a371f7; border-color: transparent; }
+  .badge.subscription { background: rgba(240,180,41,.14); color: var(--warn); border-color: transparent; }
+  .badge.apikey       { background: rgba(139,148,158,.15); color: var(--text-2); border-color: transparent; }
 
   /* ---------- Suggest form ---------- */
   .suggest {
@@ -695,9 +707,18 @@ function renderRows(agents, statsByAgent) {
     const tr = document.createElement("tr");
     const enabled = a.enabled !== false;
     tr.className = (a.state || "healthy") + (enabled ? "" : " disabled");
-    const tags = (a.tags || []).map(t =>
-      '<span class="badge ' + (t === 'free' ? 'free' : '') + '">' + t + '</span>'
-    ).join("");
+    // Derive access-mode tags from transport / auth shape — keeps agents.yaml
+    // lean while making CLI-vs-API and subscription-vs-apikey scannable.
+    // Order matters: put access-mode tags first so they stay leftmost.
+    const derived = [];
+    if (a.transports?.edit_exists) derived.push("cli");
+    if (a.transports?.generate_new) derived.push("api");
+    if (typeof a.auth === "string" && a.auth.startsWith("cli:")) derived.push("subscription");
+    else if (typeof a.auth === "string" && a.auth.startsWith("env:")) derived.push("apikey");
+    const allTags = [...derived, ...(a.tags || [])];
+    const tags = '<span class="tags">' + allTags.map(t =>
+      '<span class="badge ' + (["free","cli","api","subscription","apikey"].includes(t) ? t : "") + '">' + t + '</span>'
+    ).join("") + '</span>';
     const s = (statsByAgent || {})[a.id] || {};
     const lastErr = s.last_error;
     const errCell = lastErr && lastErr.error_preview
