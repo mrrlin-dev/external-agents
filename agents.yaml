@@ -369,7 +369,7 @@ agents:
     tags: [agentic]
     auth: "cli:cursor-agent"
     transports:
-      edit_exists: "cursor-agent -p --output-format text"
+      edit_exists: "cursor-agent -p --output-format text --trust"
 
   - id: opencode
     provider: sst
@@ -412,7 +412,7 @@ agents:
     auth: "cli:codex"
     usage_url: "https://platform.openai.com/usage"
     transports:
-      edit_exists: "codex exec"
+      edit_exists: "codex exec --skip-git-repo-check"
 
   - id: codex-pro
     provider: openai
@@ -422,7 +422,7 @@ agents:
     auth: "cli:codex"
     usage_url: "https://platform.openai.com/usage"
     transports:
-      edit_exists: "codex exec -m gpt-5.4-codex"
+      edit_exists: "codex exec --skip-git-repo-check -m gpt-5.4-codex"
 
   # Claude family — subscription-backed, two tiers. `claude-opus` is the
   # strongest, `claude-sonnet` (below) is weak-tier for the atomic-executor
@@ -435,7 +435,7 @@ agents:
     auth: "cli:claude"
     usage_url: "https://console.anthropic.com/settings/usage"
     transports:
-      edit_exists: "claude --print --model claude-opus-4-7"
+      edit_exists: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-7"
 
   # Weak-tier Sonnet — same Claude subscription, cheaper model. Included in
   # default `pick_agents` runs (weak filter passes it), so `dispatch` /
@@ -450,4 +450,4 @@ agents:
     preference_order: 20
     usage_url: "https://console.anthropic.com/settings/usage"
     transports:
-      edit_exists: "claude --print --model claude-sonnet-5"
+      edit_exists: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-sonnet-5"
