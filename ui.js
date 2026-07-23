@@ -402,6 +402,8 @@ const PAGE = `<!doctype html>
   .pill.rate_limited::before { background: var(--warn); }
   .pill.errored_transient { background: var(--info-2); color: var(--info); }
   .pill.errored_transient::before { background: var(--info); }
+  .pill.model_unavailable { background: var(--panel-2); color: var(--text-3); border: 1px solid var(--border); }
+  .pill.model_unavailable::before { background: var(--text-3); }
 
   tr.healthy         td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
   tr.needs_auth      td:first-child,
@@ -409,6 +411,8 @@ const PAGE = `<!doctype html>
   tr.quota_exhausted td:first-child,
   tr.rate_limited    td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
   tr.errored_transient td:first-child { box-shadow: inset 2px 0 0 var(--info); }
+  tr.model_unavailable td:first-child { box-shadow: inset 2px 0 0 var(--text-3); }
+  tr.model_unavailable td:not(:first-child) { opacity: 0.55; }
 
   /* Tags */
   .badge {
@@ -607,7 +611,7 @@ function fmtUsd(v) {
 let sortKey = localStorage.getItem("sort_key") || "state";
 let sortDir = localStorage.getItem("sort_dir") || "asc";
 const SORT_ORDER = {
-  state: ["healthy", "quota_exhausted", "rate_limited", "needs_auth", "not_installed", "errored_transient"],
+  state: ["healthy", "quota_exhausted", "rate_limited", "needs_auth", "not_installed", "errored_transient", "model_unavailable"],
   tier:  ["strong", "weak"],
 };
 function sortAgents(agents, statsByAgent) {
@@ -846,7 +850,14 @@ const PROVIDER_META = {
 
 function renderUnlock(agents) {
   const box = document.getElementById("unlock");
-  const missing = agents.filter(a => (a.tags || []).includes("free") && a.state === "needs_auth");
+  // Only surface entries that pasting a key will actually unlock. Skip:
+  //   - already disabled by the operator (toggle off)
+  //   - model_unavailable — key is fine, model just doesn't exist on this account
+  const missing = agents.filter(a =>
+    (a.tags || []).includes("free") &&
+    a.state === "needs_auth" &&
+    a.enabled !== false
+  );
   const providers = [...new Set(missing.map(a => a.provider))];
   if (providers.length === 0) { box.style.display = "none"; return; }
   const rows = providers.map(p => {
@@ -999,6 +1010,19 @@ const server = http.createServer(async (req, res) => {
         }));
         for (const vr of verifyResults) {
           if (!vr.ok) {
+            // If verify failed specifically because THIS model doesn't exist
+            // on the account, mark ONLY the verified agent as model_unavailable
+            // (the key itself is fine — sibling entries with different models
+            // stay eligible). Any other failure fans out to every entry
+            // sharing this provider (bad key = bad key everywhere).
+            if (vr.modelUnavailable) {
+              patch[vr.agent_id] = {
+                state: "model_unavailable",
+                note: `provider says model does not exist (HTTP ${vr.status || "?"})`,
+                checked: Math.floor(Date.now() / 1000),
+              };
+              continue;
+            }
             for (const a of affected.filter((x) => x.provider === vr.provider)) {
               patch[a.id] = {
                 state: "needs_auth",
