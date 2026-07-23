@@ -238,8 +238,14 @@ async function cmdSetCredential(args) {
 // The UI process stays foregrounded (Ctrl-C to quit) so the operator can watch
 // key-save events land in stderr.
 function cmdInit(flags) {
-  const port = Number(flags.port) || 4711;
-  const host = String(flags.host || "127.0.0.1");
+  // --port/--host flags win; then EXTERNAL_AGENTS_UI_PORT/_HOST env (so a
+  // Docker/systemd deployment can configure via env without a CLI flag);
+  // then the loopback-only default. Previously this silently ignored the
+  // env vars and always defaulted to 127.0.0.1 unless --host was passed —
+  // breaking any container that set EXTERNAL_AGENTS_UI_HOST=0.0.0.0 and
+  // expected the UI to actually be reachable from outside the container.
+  const port = Number(flags.port) || Number(process.env.EXTERNAL_AGENTS_UI_PORT) || 4711;
+  const host = String(flags.host || process.env.EXTERNAL_AGENTS_UI_HOST || "127.0.0.1");
   const url  = `http://${host}:${port}/`;
   const skipOpen = flags["no-open"] === true;
   const opener =
