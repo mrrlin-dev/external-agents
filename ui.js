@@ -408,7 +408,7 @@ const PAGE = `<!doctype html>
   td.tier { font-size: 11.5px; color: var(--text-2); }
   td.time { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; }
   /* Note column: truncate to a single line with ellipsis so the pill + row
-     stay compact. Full text lives in the `title` attribute — hover to see. */
+     stay compact. Full text lives in the title attribute — hover to see. */
   td.note {
     color: var(--text-2); font-size: 11.5px;
     max-width: 220px;
