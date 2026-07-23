@@ -315,13 +315,24 @@ async function auditCliEntry(entry) {
       clearTimeout(timer);
       const latencyMs = Date.now() - start;
       const preview = (err + "\n" + out).trim();
+      // Signal-detection runs BEFORE exit-code check — some CLIs exit 0 even
+      // when they printed a "Not logged in" or "quota reached" message
+      // instead of actually running (e.g. claude --print with no OAuth,
+      // kiro-cli's quota screen). Trusting exit code alone marks those as
+      // healthy, which is exactly the false-positive the operator asked to fix.
       const isQuota = /monthly.{0,20}(request )?limit reached|usage limit|hit your usage limit|quota exhausted|rate.limit|too many requests/i.test(preview);
-      const isAuth = /not logged in|please run \/login|authorizationrequired|authentication failed|unauthenticated|401 unauthorized|invalid.{0,20}api key|revoked/i.test(preview);
-      // Older codex CLI hits "requires a newer version" — treat as errored_transient
-      // (not model_unavailable, because model exists — just this CLI can't reach it).
-      if (code === 0) return resolve({ ok: true, latencyMs });
-      if (isQuota)   return resolve({ ok: false, quotaExhausted: true, hint: extractLine(preview, /monthly.{0,60}limit reached|usage limit.{0,60}/i), latencyMs });
-      if (isAuth)    return resolve({ ok: false, needsAuth: true, hint: extractLine(preview, /not logged in.{0,60}|please run \/login|authorizationrequired|invalid.{0,40}api key.{0,40}/i), latencyMs });
+      const isAuth = /not logged in|please run \/login|authorizationrequired|authentication failed|unauthenticated|401 unauthorized|invalid.{0,20}api key|oauth.{0,20}(revoked|expired)|revoked/i.test(preview);
+      if (isQuota) return resolve({ ok: false, quotaExhausted: true, hint: extractLine(preview, /monthly.{0,60}limit reached|usage limit.{0,60}/i), latencyMs });
+      if (isAuth)  return resolve({ ok: false, needsAuth: true, hint: extractLine(preview, /not logged in.{0,60}|please run \/login|authorizationrequired|invalid.{0,40}api key.{0,40}|oauth.{0,20}(revoked|expired)/i), latencyMs });
+      // Content sanity — a healthy CLI must produce ACTUAL model output, not
+      // just empty stdout or startup noise. Require the probe prompt's expected
+      // token to appear (any casing) in stdout. If it's missing, treat as
+      // errored_transient with the last-line as hint — the CLI ran but the
+      // response looks off (soft error, empty tool call, censored output).
+      if (code === 0) {
+        if (/\bOK\b/i.test(out)) return resolve({ ok: true, latencyMs });
+        return resolve({ ok: false, hint: `exit 0 but response did not include expected marker (got: "${(out || err).slice(0, 120).replace(/\s+/g, " ").trim()}")`, latencyMs });
+      }
       resolve({ ok: false, hint: (preview.split("\n").filter(l => l.trim()).pop() || `exit ${code}`).slice(0, 200), latencyMs });
     });
   });
