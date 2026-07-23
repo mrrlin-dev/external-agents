@@ -134,7 +134,7 @@ agents:
   # ============ DeepSeek ============
   - id: deepseek-chat
     provider: deepseek
-    model: deepseek-chat
+    model: deepseek-v4-flash
     quota_scope: shared
     tier: weak
     tags: [quick]
@@ -145,12 +145,12 @@ agents:
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
         env: DEEPSEEK_API_KEY
-        model: deepseek-chat
-      edit_exists: "aider --model deepseek/deepseek-chat"
+        model: deepseek-v4-flash
+      edit_exists: "aider --model deepseek/deepseek-v4-flash"
 
   - id: deepseek-reasoner
     provider: deepseek
-    model: deepseek-reasoner
+    model: deepseek-v4-pro
     quota_scope: shared
     tier: strong
     tags: [quick, reasoning]
@@ -160,13 +160,13 @@ agents:
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
         env: DEEPSEEK_API_KEY
-        model: deepseek-reasoner
-      edit_exists: "aider --model deepseek/deepseek-reasoner"
+        model: deepseek-v4-pro
+      edit_exists: "aider --model deepseek/deepseek-v4-pro"
 
   # ============ Z.ai (GLM) — OpenAI-compat with per-entry env override ============
-  - id: glm-4.7-flash
+  - id: glm-4.7
     provider: zai
-    model: glm-4.7-flash
+    model: glm-4.7
     quota_scope: shared
     tier: weak
     tags: [quick, free]
@@ -177,8 +177,8 @@ agents:
       generate_new:
         url: "https://api.z.ai/api/paas/v4/chat/completions"
         env: OPENAI_API_KEY   # per-entry override below routes the AIza… key here
-        model: glm-4.7-flash
-      edit_exists: "aider --model openai/glm-4.7-flash --openai-api-base https://api.z.ai/api/paas/v4"
+        model: glm-4.7
+      edit_exists: "aider --model openai/glm-4.7 --openai-api-base https://api.z.ai/api/paas/v4"
     env:
       OPENAI_API_KEY: "@file:~/.claude/state/zai.key"
 
@@ -229,6 +229,21 @@ agents:
         model: openai/gpt-oss-20b
       edit_exists: "aider --model groq/openai/gpt-oss-20b"
 
+  - id: groq-llama-3.1-8b-instant
+    provider: groq
+    model: llama-3.1-8b-instant
+    quota_scope: shared
+    tier: weak
+    tags: [quick, fast, free]
+    auth: "env:GROQ_API_KEY"
+    usage_url: "https://console.groq.com/settings/usage"
+    transports:
+      generate_new:
+        url: "https://api.groq.com/openai/v1/chat/completions"
+        env: GROQ_API_KEY
+        model: llama-3.1-8b-instant
+      edit_exists: "aider --model groq/llama-3.1-8b-instant"
+
   # ============ OpenRouter — 50+ free models with :free tag ============
   # NB: OpenRouter rotates its :free catalog often — models come and go.
   # If any entry here 404s, run `external-agents audit --provider openrouter`
@@ -247,6 +262,21 @@ agents:
         env: OPENROUTER_API_KEY
         model: nvidia/nemotron-3-ultra-550b-a55b:free
       edit_exists: "aider --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+
+  - id: openrouter-nemotron-super-free
+    provider: openrouter
+    model: nvidia/nemotron-3-super-120b-a12b:free
+    quota_scope: shared
+    tier: strong
+    tags: [reasoning, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/settings/credits"
+    transports:
+      generate_new:
+        url: "https://openrouter.ai/api/v1/chat/completions"
+        env: OPENROUTER_API_KEY
+        model: nvidia/nemotron-3-super-120b-a12b:free
+      edit_exists: "aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free"
 
   - id: openrouter-gemma-4-31b-free
     provider: openrouter
@@ -327,6 +357,21 @@ agents:
         env: CEREBRAS_API_KEY
         model: zai-glm-4.7
       edit_exists: "aider --model cerebras/zai-glm-4.7"
+
+  - id: cerebras-gemma-4-31b
+    provider: cerebras
+    model: gemma-4-31b
+    quota_scope: shared
+    tier: weak
+    tags: [quick, fast, free]
+    auth: "env:CEREBRAS_API_KEY"
+    usage_url: "https://cloud.cerebras.ai/platform/keys"
+    transports:
+      generate_new:
+        url: "https://api.cerebras.ai/v1/chat/completions"
+        env: CEREBRAS_API_KEY
+        model: gemma-4-31b
+      edit_exists: "aider --model cerebras/gemma-4-31b"
 
   # ============ Ollama Cloud (via localhost daemon → cloud proxy) ============
   - id: ollama-gpt-oss-20b
