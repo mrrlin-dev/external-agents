@@ -14,7 +14,8 @@
 //        {"outcome":..., "exit_code":..., "duration_ms":..., "workdir":...}
 //   status [--json]  → table of every registry entry with state (or JSON)
 //   probe <agent-id> → probes one agent, prints new state JSON
-import { loadRegistry } from "./lib/registry.js";
+import { loadRegistry, OVERRIDE_PATH, LOCAL_PATH } from "./lib/registry.js";
+import yaml from "js-yaml";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
 import { runAny, resolveEscalation, parseExhaustionSignal, getStats } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
@@ -251,6 +252,80 @@ function cmdInit(flags) {
 // stays the single entry point. ui.js runs its server at top level and blocks;
 // we spawn it as a child so cli.js does not need to import server-lifecycle code
 // and so Ctrl-C from the terminal terminates the child cleanly.
+// Pull the latest bundled `agents.yaml` from GitHub main and store as an override.
+// The override is applied on top of the bundled registry at load time (same-id
+// replaces, new-id appends), so operators get new models without waiting for a
+// package release. Explicit — never runs on startup or dispatch.
+async function cmdRefresh(flags) {
+  const url = flags.url || "https://raw.githubusercontent.com/mrrlin-dev/external-agents/main/agents.yaml";
+  process.stderr.write(`external-agents refresh: pulling ${url}\n`);
+  let text;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) die(`refresh: HTTP ${r.status} ${r.statusText}`, 1);
+    text = await r.text();
+  } catch (e) {
+    die(`refresh: fetch failed — ${e.message}`, 1);
+  }
+  // Validate BEFORE writing — a broken remote file must not brick the local install.
+  let parsed;
+  try {
+    parsed = yaml.load(text);
+    if (!parsed || !parsed.schema_version || !Array.isArray(parsed.agents)) throw new Error("missing schema_version / agents");
+  } catch (e) {
+    die(`refresh: remote yaml invalid — ${e.message}`, 1);
+  }
+  fs.mkdirSync(path.dirname(OVERRIDE_PATH), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(OVERRIDE_PATH, text, { mode: 0o644 });
+  console.log(`refreshed: ${parsed.agents.length} agents from ${url}`);
+  console.log(`wrote:     ${OVERRIDE_PATH}`);
+  console.log(`re-run 'external-agents status' to see any new entries.`);
+}
+
+// Append a locally-authored agent to the local overlay yaml. Minimum viable:
+// caller passes id / provider / url / model / env; we build the entry and
+// merge it into ~/.local/state/external-agents/agents.local.yaml.
+function cmdAddModel(flags) {
+  const need = ["id", "provider", "url", "model", "env"];
+  const missing = need.filter((k) => !flags[k]);
+  if (missing.length) {
+    die(`add-model: missing --${missing.join(" --")} (usage: --id ID --provider P --url URL --model M --env ENV_VAR [--tier weak|strong] [--tags a,b] [--auth env:X])`, 2);
+  }
+  const entry = {
+    id: String(flags.id),
+    provider: String(flags.provider),
+    model: String(flags.model),
+    tier: flags.tier ? String(flags.tier) : "weak",
+    tags: flags.tags ? String(flags.tags).split(",").filter(Boolean) : [],
+    auth: flags.auth ? String(flags.auth) : `env:${flags.env}`,
+    transports: {
+      generate_new: {
+        url: String(flags.url),
+        env: String(flags.env),
+        model: String(flags.model),
+      },
+    },
+  };
+  // Load existing overlay (or start fresh) — append/replace by id.
+  let overlay = { schema_version: 1, agents: [] };
+  if (fs.existsSync(LOCAL_PATH)) {
+    try {
+      const parsed = yaml.load(fs.readFileSync(LOCAL_PATH, "utf-8"));
+      if (parsed && Array.isArray(parsed.agents)) overlay = parsed;
+    } catch (e) {
+      die(`add-model: existing ${LOCAL_PATH} unreadable — ${e.message}`, 1);
+    }
+  }
+  const idx = overlay.agents.findIndex((a) => a.id === entry.id);
+  if (idx >= 0) overlay.agents[idx] = entry;
+  else overlay.agents.push(entry);
+  fs.mkdirSync(path.dirname(LOCAL_PATH), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(LOCAL_PATH, yaml.dump(overlay), { mode: 0o644 });
+  console.log(`${idx >= 0 ? "replaced" : "added"}: ${entry.id}`);
+  console.log(`wrote:    ${LOCAL_PATH}`);
+  console.log(`re-run 'external-agents probe ${entry.id}' to verify.`);
+}
+
 function cmdUi(flags) {
   const uiPath = path.join(path.dirname(new URL(import.meta.url).pathname), "ui.js");
   const env = { ...process.env };
@@ -275,6 +350,8 @@ switch (subcmd) {
   case "ui":       cmdUi(flags); break;
   case "init":     cmdInit(flags); break;
   case "set-credential": await cmdSetCredential(args); break;
+  case "refresh":  await cmdRefresh(flags); break;
+  case "add-model": cmdAddModel(flags); break;
   case "help":
   case "--help":
   case undefined:
@@ -286,7 +363,10 @@ switch (subcmd) {
   stats [--since ISO] [--json]
   ui [--port N] [--host H]        # local dashboard for setting keys + inspecting state (default http://127.0.0.1:4711)
   init [--port N] [--host H]      # launch UI AND open it in the default browser — the "just installed" one-shot
-  set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin`);
+  set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin
+  refresh [--url URL]              # pull latest agents.yaml from GitHub main (default) or --url; writes overlay to ~/.local/state/external-agents/agents.yaml.override
+  add-model --id ID --provider P --url URL --model M --env ENV_VAR [--tier weak|strong] [--tags a,b]
+                                   # add a locally-authored agent to ~/.local/state/external-agents/agents.local.yaml (merged over the bundled registry)`);
     process.exit(subcmd ? 0 : 2);
   default: die(`unknown subcommand: ${subcmd}`, 2);
 }

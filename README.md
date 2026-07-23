@@ -70,6 +70,26 @@ Your primary agent (Claude Code, Codex, Cursor) gets these as MCP tools automati
 
 Missing a provider? [Suggest it](https://github.com/mrrlin-dev/external-agents/issues/new?labels=missing-model) — the built-in UI has a form that opens a pre-filled issue.
 
+### Keeping the list fresh
+
+New models ship constantly. Two options — nothing forces you to wait for a package release:
+
+**`external-agents refresh`** — pulls the latest bundled `agents.yaml` from GitHub `main` and writes an override to `~/.local/state/external-agents/agents.yaml.override`. Same-id replaces, new-id appends. Run it monthly (or after seeing a "look, X just launched" tweet).
+
+**`external-agents add-model`** — add your own entry (internal endpoint, beta model, whatever) without touching the package:
+```bash
+external-agents add-model \
+  --id kimi-k2-instruct \
+  --provider groq \
+  --model moonshotai/kimi-k2-instruct \
+  --url https://api.groq.com/openai/v1/chat/completions \
+  --env GROQ_API_KEY \
+  --tags free,fast
+```
+Writes to `~/.local/state/external-agents/agents.local.yaml`. Layered on top of everything else.
+
+Load order at every startup: **bundled → refresh-override → local-additions**. Each layer replaces same-`id` entries and appends new ones. `npm i -g @mrrlin-dev/external-agents@latest` still works and always ships a curated, tested `agents.yaml` — it's just no longer the only path to a new model.
+
 ---
 
 ## Mrrlin uses this
