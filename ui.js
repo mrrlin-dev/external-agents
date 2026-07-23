@@ -407,7 +407,16 @@ const PAGE = `<!doctype html>
   td.num.zero { color: var(--text-3); }
   td.tier { font-size: 11.5px; color: var(--text-2); }
   td.time { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; }
-  td.note { color: var(--text-2); font-size: 11.5px; max-width: 320px; }
+  /* Note column: truncate to a single line with ellipsis so the pill + row
+     stay compact. Full text lives in the `title` attribute — hover to see. */
+  td.note {
+    color: var(--text-2); font-size: 11.5px;
+    max-width: 220px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: help;
+  }
+  /* State column should hug its pill — no fixed width, no wrapping. */
+  td.state { white-space: nowrap; }
 
   /* State — pill + row-rail */
   .pill {
@@ -416,6 +425,7 @@ const PAGE = `<!doctype html>
     font-size: 11px; font-weight: 500;
     font-family: var(--mono);
   }
+  .pill[title] { cursor: help; }
   .pill::before {
     content: ""; width: 6px; height: 6px; border-radius: 50%;
     display: inline-block;
@@ -748,12 +758,27 @@ function renderRows(agents, statsByAgent) {
         ' onchange="toggleAgent(\\'' + a.id + '\\', this.checked)"><span class="slider"></span>' +
       '</label></td>' +
       '<td class="id">' + esc(a.id) +
-        '<span class="sub">' + esc(a.model || "—") + '</span>' +
+        // Show model sub-line ONLY when it adds information — id/model can
+        // literally be the same string, or the entry uses model="default"
+        // (Codex "let the CLI pick"), in which case the second line is noise.
+        (a.model && a.model !== a.id && a.model !== "default"
+          ? '<span class="sub">' + esc(a.model) + '</span>'
+          : '') +
       '</td>' +
       '<td>' + (a.provider || "—") + '</td>' +
       '<td class="tier">' + (a.tier || "—") + '</td>' +
       '<td>' + tags + '</td>' +
-      '<td><span class="pill ' + (a.state || "healthy") + '">' + (a.state || "healthy") + '</span>' + errCell + '</td>' +
+      // State cell: pill hugs its text (state.state class already handles
+      // white-space:nowrap on the td). The full `note` from probe/audit goes
+      // into the pill's title attribute — hover to read without taking row space.
+      // `.last-err` (from stats.last_error) still renders inline below the pill
+      // for failed dispatches, truncated + tooltipped in its own CSS block.
+      '<td class="state">' +
+        '<span class="pill ' + (a.state || "healthy") + '"' +
+          (a.note ? ' title="' + esc(a.note) + '"' : '') +
+        '>' + (a.state || "healthy") + '</span>' +
+        errCell +
+      '</td>' +
       '<td class="num ' + (calls === 0 ? 'zero' : '') + '">' + (calls || "—") + '</td>' +
       '<td class="num ' + (tokens === 0 ? 'zero' : '') + '">' + (tokens > 0 ? fmtNum(tokens) : "—") + '</td>' +
       '<td class="num">' + successHtml + '</td>' +
