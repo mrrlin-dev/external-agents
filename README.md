@@ -99,6 +99,25 @@ Writes to `~/.local/state/external-agents/agents.local.yaml`, layered on top of 
 
 ---
 
+## Routing philosophy — be smart, not lavish
+
+`pick_agents` defaults to `tier: "weak"` on purpose. **Most tasks don't need a frontier model.**
+
+Single-file edits, refactors, glue code, summaries, format conversions, well-scoped bug fixes, docstring generation, test-case writing — a Gemini Flash, Groq Llama, DeepSeek, or OpenRouter :free model gets you the same correct answer as Claude Opus 4.8 or Codex Pro, at a fraction of the time and cost. This isn't an opinion — it's how the pool is built to be used.
+
+Reach for **strong-tier** (Claude Opus, Codex Pro, DeepSeek Reasoner, Nemotron Ultra) only when the task is genuinely one of these:
+
+- Multi-step debugging with unclear root cause
+- Architecture / API-shape decisions
+- Novel algorithms or math-heavy transforms
+- Ambiguous requirements that need the model to disambiguate
+
+If a weak-tier agent gets the answer wrong, the **first move is to sharpen the spec, not escalate tier**. `escalate_to_pro` is a retry lever, not a default. Reaching for a stronger model hides prompt-engineering failures behind expensive compute — and you'll be doing it every time until the spec is fixed anyway.
+
+The `dispatch` and `pick_agents` MCP tools carry this guidance in their descriptions so any LLM caller reading the tool schema at runtime picks up the same routing bias.
+
+---
+
 ## Mrrlin uses this
 
 [Mrrlin](https://mrrlin.com) is the platform this was extracted from. Its consensus gate — every design and every PR diff — runs a 4-reviewer panel: GPT + Gemini over MCP + **two dynamic terminal reviewers pulled from this exact pool** every round. Free-tier terminals mean the gate is essentially free to run on every substantial change, and cross-model diversity beats any single-model reviewer.

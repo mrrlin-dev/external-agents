@@ -88,7 +88,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "pick_agents",
-        description: "Pick up to N distinct healthy candidates by round-robin (preference_order + last_used_at). Optional min_distinct_providers enforces cross-provider diversity.",
+        description:
+          "Pick up to N distinct healthy candidates by round-robin (preference_order + last_used_at). " +
+          "Optional min_distinct_providers enforces cross-provider diversity. " +
+          "\n\nROUTING NOTE: default filter is tier='weak' — that is intentional. Most atomic tasks " +
+          "(single-file edits, refactors, glue code, summaries, format conversions, well-scoped fixes) " +
+          "get the same quality answer from a weak-tier free-tier model as from Claude Opus or " +
+          "Codex Pro, in a fraction of the time and cost. Reach for strong-tier (filter tier='strong') " +
+          "ONLY when the task actually needs deep reasoning: multi-step debugging, architecture " +
+          "decisions, ambiguous requirements, novel algorithms. Frontier ≠ better output for the " +
+          "long tail of routine work; often it is slower with no quality gain. Be smart, not lavish.",
         inputSchema: {
           type: "object",
           properties: {
@@ -107,7 +116,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "dispatch",
-        description: "Run a specific agent by id with a prompt. transport ('generate' | 'cli') overrides the default (generate preferred when entry declares it). escalate_to_pro=true uses the same-provider strong-tier entry instead.",
+        description:
+          "Run a specific agent by id with a prompt. transport ('generate' | 'cli') overrides the " +
+          "default (generate preferred when entry declares it). escalate_to_pro=true uses the " +
+          "same-provider strong-tier entry instead. " +
+          "\n\nROUTING NOTE: for the same task, weak-tier free-tier models (Gemini flash, Groq " +
+          "llama, DeepSeek, OpenRouter :free) are usually correct AND fast enough. Use dispatch " +
+          "against Claude Opus, Codex Pro, or any strong-tier subscription model ONLY when the " +
+          "task genuinely needs frontier capability. escalate_to_pro is a retry lever, not a " +
+          "default. If a weak agent's output is wrong, first ask whether the SPEC was ambiguous " +
+          "(fix the spec, re-dispatch weak) before escalating tier — reaching for stronger models " +
+          "hides prompt-engineering failures behind expensive compute.",
         inputSchema: {
           type: "object",
           properties: {
