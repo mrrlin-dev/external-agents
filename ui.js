@@ -850,9 +850,11 @@ function renderRows(agents, statsByAgent) {
       '<td class="num ' + (tokens === 0 ? 'zero' : '') + '">' + (tokens > 0 ? fmtNum(tokens) : "—") + '</td>' +
       '<td class="num">' + successHtml + '</td>' +
       '<td class="time">' + fmtTime(a.last_used_at) + '</td>' +
-      '<td>' + (a.usage_url
-        ? '<a href="' + a.usage_url + '" target="_blank" rel="noopener">usage ↗</a>'
-        : '<button class="btn verify-btn" id="vb-' + a.id.replace(/[^a-z0-9]/gi, '_') + '" onclick="verify(\\'' + a.id + '\\')" title="Live probe — dispatch a tiny prompt and update state">run</button>') +
+      '<td>' +
+        (a.usage_url
+          ? '<a href="' + a.usage_url + '" target="_blank" rel="noopener">usage ↗</a> '
+          : '') +
+        '<button class="btn verify-btn" id="vb-' + a.id.replace(/[^a-z0-9]/gi, '_') + '" onclick="verify(\\'' + a.id + '\\')" title="Live probe — dispatch a tiny prompt and update state">run</button>' +
       '</td>';
     tbody.appendChild(tr);
   }
