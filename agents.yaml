@@ -406,7 +406,7 @@ agents:
   # picks the strongest model on your plan via `-m gpt-5.4-codex`.
   - id: codex
     provider: openai
-    model: gpt-5.2-codex
+    model: default
     tier: strong
     tags: []
     auth: "cli:codex"
@@ -424,10 +424,54 @@ agents:
     transports:
       edit_exists: "codex exec --skip-git-repo-check -m gpt-5.4-codex"
 
-  # Claude family — subscription-backed, two tiers. `claude-opus` is the
-  # strongest, `claude-sonnet` (below) is weak-tier for the atomic-executor
-  # pool + `/consensus` terminal picks.
-  - id: claude-opus
+  # Explicit-model Codex entries — some accounts (ChatGPT-subscription vs
+  # API-key) expose different model sets. gpt-5.4-mini verified live on a
+  # ChatGPT-plan account; the -codex tier models require an OpenAI API key.
+  - id: codex-gpt-5.4-mini
+    provider: openai
+    model: gpt-5.4-mini
+    tier: weak
+    tags: [quick]
+    auth: "cli:codex"
+    usage_url: "https://platform.openai.com/usage"
+    transports:
+      edit_exists: "codex exec --skip-git-repo-check -m gpt-5.4-mini"
+
+  - id: codex-gpt-5.3-codex
+    provider: openai
+    model: gpt-5.3-codex
+    tier: strong
+    tags: [reasoning]
+    auth: "cli:codex"
+    usage_url: "https://platform.openai.com/usage"
+    transports:
+      edit_exists: "codex exec --skip-git-repo-check -m gpt-5.3-codex"
+
+  - id: codex-gpt-5.6-terra
+    provider: openai
+    model: gpt-5.6-terra
+    tier: strong
+    tags: []
+    auth: "cli:codex"
+    usage_url: "https://platform.openai.com/usage"
+    transports:
+      edit_exists: "codex exec --skip-git-repo-check -m gpt-5.6-terra"
+
+  # Claude family — subscription-backed. All non-Fable Claude 5 / Opus 4.x
+  # models. `claude-opus-4-8` is the newest strong; `claude-haiku-4-5` is
+  # the cheapest weak-tier for atomic-executor + /consensus terminal picks.
+  # Fable is intentionally excluded.
+  - id: claude-opus-4-8
+    provider: anthropic
+    model: claude-opus-4-8
+    tier: strong
+    tags: []
+    auth: "cli:claude"
+    usage_url: "https://console.anthropic.com/settings/usage"
+    transports:
+      edit_exists: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-8"
+
+  - id: claude-opus-4-7
     provider: anthropic
     model: claude-opus-4-7
     tier: strong
@@ -437,11 +481,7 @@ agents:
     transports:
       edit_exists: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-7"
 
-  # Weak-tier Sonnet — same Claude subscription, cheaper model. Included in
-  # default `pick_agents` runs (weak filter passes it), so `dispatch` /
-  # `/consensus` terminal-picks and the atomic-executor workload can route to
-  # Claude via subscription without burning Opus tokens.
-  - id: claude-sonnet
+  - id: claude-sonnet-5
     provider: anthropic
     model: claude-sonnet-5
     tier: weak
@@ -451,3 +491,14 @@ agents:
     usage_url: "https://console.anthropic.com/settings/usage"
     transports:
       edit_exists: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-sonnet-5"
+
+  - id: claude-haiku-4-5
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    tier: weak
+    tags: [quick, fast]
+    auth: "cli:claude"
+    preference_order: 22
+    usage_url: "https://console.anthropic.com/settings/usage"
+    transports:
+      edit_exists: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-haiku-4-5-20251001"
