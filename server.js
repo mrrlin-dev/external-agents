@@ -12,6 +12,7 @@ import path from "node:path";
 import { loadRegistry } from "./lib/registry.js";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
+import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, parseExhaustionSignal, resolveEscalation, getStats } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 
@@ -276,12 +277,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Shared outcome→state (lib/outcome.js) — escalating cooldown on repeated
     // failures; identical logic to cli.js so the two dispatch surfaces never drift.
     const ok = result.exitCode === 0;
-    const signal = ok ? { detected: false } : parseExhaustionSignal(result.stderr + "\n" + result.output);
+    const failText = result.stderr + "\n" + result.output;
+    const signal = ok ? { detected: false } : parseExhaustionSignal(failText);
+    // limited (rate-limit/quota) → resolve the real reset (period/provider-aware); transient → none.
+    const exhaustionResetAt = (!ok && signal.detected)
+      ? resolveExhaustionResetAt({ text: failText, provider: entry.provider, nowMs: Date.now() })
+      : undefined;
     const prevRec = readState()[entry.id];
     const nextRec = nextStateAfterOutcome(prevRec, {
       ok,
       isExhaustion: !!signal.detected,
-      exhaustionResetAt: signal.reset_at,
+      exhaustionResetAt,
       now,
     });
     writeState({ [entry.id]: nextRec });
