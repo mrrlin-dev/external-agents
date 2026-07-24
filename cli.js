@@ -410,6 +410,16 @@ async function cmdAudit(flags) {
           v.ok            ? `verified (${v.latencyMs}ms)${hasApi ? "" : " (cli)"}`
           : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
           : `HTTP ${v.status || "?"}`;
+        // quota_exhausted/rate_limited from THIS audit path used to never
+        // record cooldown_until (only an actual dispatch failure did), so
+        // pick()'s cooldown-expiry check had nothing to expire and the UI
+        // had nothing to show. v.reset_at (parsed Retry-After / "resets in
+        // Xh" text) wins when available; otherwise the same flat 1-hour
+        // fallback the dispatch-failure path already uses.
+        const cooldown_until =
+          (outcome === "quota_exhausted" || outcome === "rate_limited")
+            ? (v.reset_at ?? (Math.floor(Date.now() / 1000) + 3600))
+            : undefined;
         // Deep-merge so probe metadata (last_used_at, enabled flag) survives.
         const existing = readState()[entry.id] || {};
         writeState({
@@ -418,6 +428,7 @@ async function cmdAudit(flags) {
             state: outcome,
             note,
             checked: Math.floor(Date.now() / 1000),
+            ...(cooldown_until !== undefined ? { cooldown_until } : {}),
           },
         });
         out.push({ id: entry.id, provider: entry.provider, model: entry.model, outcome, status: v.status || null, note });
