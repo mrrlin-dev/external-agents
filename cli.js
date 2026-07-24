@@ -415,7 +415,11 @@ async function cmdAudit(flags) {
         // pick()'s cooldown-expiry check had nothing to expire and the UI
         // had nothing to show. v.reset_at (parsed Retry-After / "resets in
         // Xh" text) wins when available; otherwise the same flat 1-hour
-        // fallback the dispatch-failure path already uses.
+        // fallback the dispatch-failure path already uses. `source` tags
+        // WHICH of those it was — same "error_body"/"fallback_ttl" values
+        // the dispatch-failure path already writes — so the UI can mark a
+        // fallback guess as an estimate instead of presenting it as fact.
+        const cooldownSource = v.reset_at != null ? "error_body" : "fallback_ttl";
         const cooldown_until =
           (outcome === "quota_exhausted" || outcome === "rate_limited")
             ? (v.reset_at ?? (Math.floor(Date.now() / 1000) + 3600))
@@ -428,7 +432,7 @@ async function cmdAudit(flags) {
             state: outcome,
             note,
             checked: Math.floor(Date.now() / 1000),
-            ...(cooldown_until !== undefined ? { cooldown_until } : {}),
+            ...(cooldown_until !== undefined ? { cooldown_until, source: cooldownSource } : {}),
           },
         });
         out.push({ id: entry.id, provider: entry.provider, model: entry.model, outcome, status: v.status || null, note });

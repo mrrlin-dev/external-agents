@@ -898,7 +898,16 @@ function renderRows(agents, statsByAgent) {
           (a.note ? ' title="' + esc(a.note) + '"' : '') +
         '>' + (a.state || "healthy") + '</span>' +
         ((a.state === "quota_exhausted" || a.state === "rate_limited") && a.cooldown_until
-          ? '<span class="last-err">until ' + esc(new Date(a.cooldown_until * 1000).toLocaleString()) + '</span>'
+          // source "error_body" = an actual reset time was parsed from the
+          // provider's response (Retry-After header, "Resets in Xh" text).
+          // Anything else (missing, or "fallback_ttl") is a flat 1-hour
+          // guess we made up because the provider didn't tell us — label it
+          // as an estimate instead of presenting it as a known fact.
+          ? '<span class="last-err">' +
+              (a.source === "error_body" ? "until " : "~until ") +
+              esc(new Date(a.cooldown_until * 1000).toLocaleString()) +
+              (a.source === "error_body" ? "" : " (est.)") +
+            '</span>'
           : '') +
         errCell +
       '</td>' +
@@ -1459,6 +1468,10 @@ const server = http.createServer(async (req, res) => {
     // Same reasoning as the `external-agents audit` CLI loop: this "run
     // probe" path used to never record cooldown_until for quota_exhausted/
     // rate_limited, so the dashboard had nothing to show under the pill.
+    // `source` tags whether reset_at was actually parsed ("error_body") or
+    // is a flat-TTL guess ("fallback_ttl"), so the UI can mark the latter
+    // as an estimate instead of presenting it as a known reset time.
+    const cooldownSource = v.reset_at != null ? "error_body" : "fallback_ttl";
     const cooldown_until =
       (outcome === "quota_exhausted" || outcome === "rate_limited")
         ? (v.reset_at ?? (Math.floor(Date.now() / 1000) + 3600))
@@ -1470,7 +1483,7 @@ const server = http.createServer(async (req, res) => {
         state: outcome,
         note,
         checked: Math.floor(Date.now() / 1000),
-        ...(cooldown_until !== undefined ? { cooldown_until } : {}),
+        ...(cooldown_until !== undefined ? { cooldown_until, source: cooldownSource } : {}),
       },
     });
     return json(res, 200, { id, outcome, note, latency_ms: v.latencyMs || null, status: v.status || null });
