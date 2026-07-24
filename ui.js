@@ -79,7 +79,7 @@ function findAgent(id) {
 // we anchor "what would this have cost on a strong closed model" at Claude
 // Sonnet 4.5 input+output blended ~$3/M tokens. Every dispatch that hit a free
 // provider is counted as tokens_total × $3/M saved. Not marketing spin —
-// honestly labeled as "vs Claude Sonnet input" in the UI.
+// honestly labeled as "at Claude Sonnet pricing" in the UI.
 const SAVED_ANCHOR_PER_M = 3.0;
 const AUDIT_STALE_DAYS = 7;
 // Range picker for the Dispatches / Est. saved tiles — "all" means no lower
@@ -669,7 +669,7 @@ const PAGE = `<!doctype html>
     <div class="stat hero">
       <p class="label" id="s-saved-label">Est. saved · 24h</p>
       <p class="value" id="s-saved">—</p>
-      <p class="foot" id="s-saved-foot">vs Claude Sonnet ($3/M)</p>
+      <p class="foot" id="s-saved-foot">at Claude Sonnet pricing ($3/1M tokens)</p>
     </div>
   </section>
 
@@ -1009,7 +1009,7 @@ function renderStats(s) {
     fmtNum(s.tokens) + " tokens routed";
   document.getElementById("s-saved").textContent = fmtUsd(s.saved_usd);
   document.getElementById("s-saved-foot").textContent =
-    "vs Claude Sonnet ($" + s.saved_anchor.toFixed(0) + "/M) · " + fmtNum(s.tokens_free) + " free-tier tokens";
+    "at Claude Sonnet pricing ($" + s.saved_anchor.toFixed(0) + "/1M tokens) · " + fmtNum(s.tokens_free) + " free-tier tokens";
   document.getElementById("s-saved-label").textContent = "Est. saved · " + s.range;
   // Per-row Calls/Tokens columns are populated from stats.by_agent, which is
   // computed over the same selected range — keep their header text truthful.
