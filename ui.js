@@ -1533,6 +1533,31 @@ const server = http.createServer(async (req, res) => {
   res.end("not found");
 });
 
-server.listen(PORT, HOST, () => {
-  console.error(`external-agents ui: http://${HOST}:${PORT}`);
-});
+// If PORT is already taken (another `external-agents ui` still running, or
+// something else bound to it), fall back to PORT+1, PORT+2, ... instead of
+// crashing — a leftover process from a previous session is common here.
+// `cmdInit` in cli.js greps this exact "external-agents ui: http://" line to
+// learn the REAL bound port before opening the browser, so the string prefix
+// must stay unchanged.
+const MAX_PORT_ATTEMPTS = 10;
+function listenWithRetry(port) {
+  server.listen(port, HOST, () => {
+    console.error(`external-agents ui: http://${HOST}:${port}`);
+  });
+  server.once("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      const attemptsSoFar = port - PORT;
+      if (attemptsSoFar < MAX_PORT_ATTEMPTS) {
+        const next = port + 1;
+        console.error(`external-agents ui: port ${port} is in use, trying ${next}...`);
+        listenWithRetry(next);
+        return;
+      }
+      console.error(`external-agents ui: could not bind — ports ${PORT}-${port} are all in use.`);
+    } else {
+      console.error(`external-agents ui: failed to listen on port ${port}: ${err.message}`);
+    }
+    process.exit(1);
+  });
+}
+listenWithRetry(PORT);
