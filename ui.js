@@ -432,9 +432,12 @@ const PAGE = `<!doctype html>
 
   /* ---------- Stats range toggle ---------- */
   /* Inline range select — sits where the static "24h" text used to be inside
-     the "Dispatches" tile's label, styled to read as part of the label
-     (uppercase, letter-spaced, small-caps sizing) rather than a form control. */
-  #stats-range-select {
+     each tile's label, styled to read as part of the label (uppercase,
+     letter-spaced, small-caps sizing) rather than a form control. Both tiles
+     get their own select (#stats-range-select on Dispatches, -2 on Est.
+     saved) so either one is a visible, interactive control — they drive one
+     shared range and stay in sync via renderStats(). */
+  #stats-range-select, #stats-range-select-2 {
     appearance: none; -webkit-appearance: none;
     background: var(--panel-2); color: var(--text-2);
     border: 1px solid var(--border); border-radius: 4px;
@@ -448,8 +451,8 @@ const PAGE = `<!doctype html>
     background-repeat: no-repeat;
     transition: background-color 120ms, color 120ms, border-color 120ms;
   }
-  #stats-range-select:hover { background-color: var(--panel); color: var(--text); border-color: var(--text-3); }
-  #stats-range-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #stats-range-select:hover, #stats-range-select-2:hover { background-color: var(--panel); color: var(--text); border-color: var(--text-3); }
+  #stats-range-select:focus-visible, #stats-range-select-2:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   /* ---------- Table ---------- */
   .table-wrap {
@@ -667,7 +670,12 @@ const PAGE = `<!doctype html>
       <p class="foot" id="s-disp-foot">— tokens routed</p>
     </div>
     <div class="stat hero">
-      <p class="label" id="s-saved-label">Est. saved · 24h</p>
+      <p class="label">Est. saved · <select id="stats-range-select-2" title="applies to Dispatches + Est. saved">
+        <option value="24h">24h</option>
+        <option value="7d">7d</option>
+        <option value="1mo">1mo</option>
+        <option value="all">all</option>
+      </select></p>
       <p class="value" id="s-saved">—</p>
       <p class="foot" id="s-saved-foot">at Claude Sonnet pricing ($3/1M tokens)</p>
     </div>
@@ -1010,12 +1018,12 @@ function renderStats(s) {
   document.getElementById("s-saved").textContent = fmtUsd(s.saved_usd);
   document.getElementById("s-saved-foot").textContent =
     "at Claude Sonnet pricing ($" + s.saved_anchor.toFixed(0) + "/1M tokens) · " + fmtNum(s.tokens_free) + " free-tier tokens";
-  document.getElementById("s-saved-label").textContent = "Est. saved · " + s.range;
   // Per-row Calls/Tokens columns are populated from stats.by_agent, which is
   // computed over the same selected range — keep their header text truthful.
   document.getElementById("th-calls").textContent = "Calls " + s.range;
   document.getElementById("th-tokens").textContent = "Tokens " + s.range;
   document.getElementById("stats-range-select").value = s.range;
+  document.getElementById("stats-range-select-2").value = s.range;
 }
 
 async function submitSuggest() {
@@ -1301,6 +1309,7 @@ document.querySelectorAll("#thead-row th[data-sort]").forEach(th => {
   th.addEventListener("click", () => setSort(th.dataset.sort));
 });
 document.getElementById("stats-range-select").addEventListener("change", (e) => setStatsRange(e.target.value));
+document.getElementById("stats-range-select-2").addEventListener("change", (e) => setStatsRange(e.target.value));
 refresh();
 </script>
 </body>
@@ -1447,6 +1456,13 @@ const server = http.createServer(async (req, res) => {
       v.ok            ? `verified (${v.latencyMs}ms)${hasApi ? "" : " (cli)"}`
       : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
       : `HTTP ${v.status || "?"}`;
+    // Same reasoning as the `external-agents audit` CLI loop: this "run
+    // probe" path used to never record cooldown_until for quota_exhausted/
+    // rate_limited, so the dashboard had nothing to show under the pill.
+    const cooldown_until =
+      (outcome === "quota_exhausted" || outcome === "rate_limited")
+        ? (v.reset_at ?? (Math.floor(Date.now() / 1000) + 3600))
+        : undefined;
     const existing = readState()[entry.id] || {};
     writeState({
       [entry.id]: {
@@ -1454,6 +1470,7 @@ const server = http.createServer(async (req, res) => {
         state: outcome,
         note,
         checked: Math.floor(Date.now() / 1000),
+        ...(cooldown_until !== undefined ? { cooldown_until } : {}),
       },
     });
     return json(res, 200, { id, outcome, note, latency_ms: v.latencyMs || null, status: v.status || null });
