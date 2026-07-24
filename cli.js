@@ -20,6 +20,7 @@ import { readState, writeState, probeInstalled } from "./lib/state.js";
 import { runAny, resolveEscalation, parseExhaustionSignal, getStats, verifyCredential, auditCliEntry } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
+import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -149,12 +150,21 @@ async function cmdDispatch(args, flags) {
   // progressively longer. Success resets the streak. Same helper in server.js
   // so the two dispatch surfaces never drift.
   const ok = result.exitCode === 0;
-  const sig = ok ? { detected: false } : parseExhaustionSignal(result.stderr + "\n" + result.output);
+  const failText = result.stderr + "\n" + result.output;
+  const sig = ok ? { detected: false } : parseExhaustionSignal(failText);
+  // Resolve the REAL reset (period-aware, provider-aware) from the failing output — e.g. a CLI
+  // "Monthly request limit reached" resolves to +7d, not the ladder's first rung. No headers on
+  // the CLI path, so this uses body text + provider policy only.
+  // Only a `limited` (rate-limit/quota) outcome carries a reset; a plain transient fault climbs the
+  // ladder and ignores resetAt.
+  const exhaustionResetAt = (!ok && sig.detected)
+    ? resolveExhaustionResetAt({ text: failText, provider: entry.provider, nowMs: Date.now() })
+    : undefined;
   const prev = readState()[entry.id];
   const nextRec = nextStateAfterOutcome(prev, {
     ok,
     isExhaustion: !!sig.detected,
-    exhaustionResetAt: sig.reset_at,
+    exhaustionResetAt,
     now,
   });
   writeState({ [entry.id]: nextRec });
