@@ -435,15 +435,10 @@ agents:
     transports:
       edit_exists: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-8"
 
-  - id: claude-opus-4-7
-    provider: anthropic
-    model: claude-opus-4-7
-    tier: strong
-    tags: []
-    auth: "cli:claude"
-    usage_url: "https://console.anthropic.com/settings/usage"
-    transports:
-      edit_exists: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-7"
+  # claude-opus-4-7 removed: near-duplicate of 4-8 on a SHARED subscription
+  # quota bucket — exposing both gives zero extra throughput, only an arbitrary
+  # pick between adjacent versions. (Per-model-quota providers like Google keep
+  # their near-dups because there each model is its own free bucket.)
 
   - id: claude-sonnet-5
     provider: anthropic
