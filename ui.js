@@ -82,7 +82,19 @@ function findAgent(id) {
 // honestly labeled as "vs Claude Sonnet input" in the UI.
 const SAVED_ANCHOR_PER_M = 3.0;
 const AUDIT_STALE_DAYS = 7;
-function computeStats() {
+// Range picker for the Dispatches / Est. saved tiles — "all" means no lower
+// bound (getStats treats a falsy sinceIso as "since the epoch").
+const RANGE_MS = {
+  "24h": 24 * 3600 * 1000,
+  "7d": 7 * 24 * 3600 * 1000,
+  "1mo": 30 * 24 * 3600 * 1000,
+  "all": null,
+};
+function computeStats(range = "24h") {
+  const rangeKey = Object.prototype.hasOwnProperty.call(RANGE_MS, range) ? range : "24h";
+  const ms = RANGE_MS[rangeKey];
+  const sinceIso = ms === null ? undefined : new Date(Date.now() - ms).toISOString();
+
   const rows = stateRows();
   const healthy = rows.filter((r) => r.state === "healthy").length;
   const locked  = rows.filter((r) => r.state === "needs_auth").length;
@@ -94,15 +106,15 @@ function computeStats() {
     ? Math.floor((Date.now() / 1000 - oldestChecked) / 86400)
     : null;
   const auditStale = auditAgeDays === null || auditAgeDays >= AUDIT_STALE_DAYS;
-  const s24 = getStats(new Date(Date.now() - 24 * 3600 * 1000).toISOString());
-  const dispatches24 = s24.total || 0;
-  const tokensAll = Object.values(s24.by_agent || {})
+  const s = getStats(sinceIso);
+  const dispatches = s.total || 0;
+  const tokensAll = Object.values(s.by_agent || {})
     .reduce((sum, a) => sum + (a.tokens_in || 0) + (a.tokens_out || 0), 0);
   // We only count "saved" for dispatches that would otherwise cost real money —
   // ie. those that ran on free-tagged agents. Anything else was going to cost
   // something already.
   const freeIds = new Set(rows.filter((r) => (r.tags || []).includes("free")).map((r) => r.id));
-  const tokensFree = Object.entries(s24.by_agent || {})
+  const tokensFree = Object.entries(s.by_agent || {})
     .filter(([id]) => freeIds.has(id))
     .reduce((sum, [, a]) => sum + (a.tokens_in || 0) + (a.tokens_out || 0), 0);
   const savedUsd = (tokensFree / 1_000_000) * SAVED_ANCHOR_PER_M;
@@ -110,13 +122,14 @@ function computeStats() {
     healthy_count:  healthy,
     locked_count:   locked,
     total_count:    rows.length,
-    dispatches_24h: dispatches24,
-    tokens_24h:     tokensAll,
-    tokens_free_24h: tokensFree,
-    saved_usd_24h:  savedUsd,
+    dispatches:     dispatches,
+    tokens:         tokensAll,
+    tokens_free:    tokensFree,
+    saved_usd:      savedUsd,
     saved_anchor:   SAVED_ANCHOR_PER_M,
+    range:          rangeKey,
     // Per-agent aggregates so the UI can surface last_error inline per row.
-    by_agent: s24.by_agent || {},
+    by_agent: s.by_agent || {},
     // Audit freshness — UI shows a small nag when this is true.
     audit: {
       stale: auditStale,
@@ -136,7 +149,7 @@ const PAGE = `<!doctype html>
   /* ---------- Tokens ---------- */
   :root {
     --bg:       #f6f8fa;
-    --panel:    #ffffff;
+    --panel:    #fafbfc;
     --panel-2:  #f6f8fa;
     --border:   #d0d7de;
     --border-2: #e6ebf1;
@@ -175,7 +188,7 @@ const PAGE = `<!doctype html>
     }
   }
   :root[data-theme="light"] {
-    --bg:#f6f8fa;--panel:#ffffff;--panel-2:#f6f8fa;--border:#d0d7de;--border-2:#e6ebf1;
+    --bg:#f6f8fa;--panel:#fafbfc;--panel-2:#f6f8fa;--border:#d0d7de;--border-2:#e6ebf1;
     --text:#1f2328;--text-2:#59636e;--text-3:#818b98;
     --accent:#1a7f37;--accent-2:#dafbe1;--warn:#9a6700;--warn-2:#fff8c5;
     --err:#cf222e;--err-2:#ffebe9;--info-2:#ddf4ff;--info:#0969da;
@@ -417,6 +430,27 @@ const PAGE = `<!doctype html>
   .controls .left { display: flex; gap: 12px; align-items: center; }
   .stamp { color: var(--text-3); font-size: 11.5px; font-family: var(--mono); }
 
+  /* ---------- Stats range toggle ---------- */
+  /* Inline range select — sits where the static "24h" text used to be inside
+     the "Dispatches" tile's label, styled to read as part of the label
+     (uppercase, letter-spaced, small-caps sizing) rather than a form control. */
+  #stats-range-select {
+    appearance: none; -webkit-appearance: none;
+    background: var(--panel-2); color: var(--text-2);
+    border: 1px solid var(--border); border-radius: 4px;
+    font: inherit; text-transform: uppercase; letter-spacing: 0.6px;
+    font-size: 10.5px; font-weight: 600;
+    padding: 2px 20px 2px 7px; margin-left: 2px; cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+                       linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+    background-position: right 9px center, right 5px center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    transition: background-color 120ms, color 120ms, border-color 120ms;
+  }
+  #stats-range-select:hover { background-color: var(--panel); color: var(--text); border-color: var(--text-3); }
+  #stats-range-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
   /* ---------- Table ---------- */
   .table-wrap {
     background: var(--panel);
@@ -607,7 +641,6 @@ const PAGE = `<!doctype html>
     <h1>external-agents<span class="dot">.</span></h1>
     <div class="header-right">
       <button id="theme-toggle" class="theme-btn" onclick="cycleTheme()" title="Cycle theme (system / light / dark)"></button>
-      <span class="listening">${HOST}:${PORT}</span>
     </div>
   </header>
   <p class="subtitle">Local dashboard — inspect the pool, set API keys, watch dispatches settle. Zero data leaves this machine.</p>
@@ -624,12 +657,17 @@ const PAGE = `<!doctype html>
       <p class="foot" id="s-locked-foot">paste a key to unlock</p>
     </div>
     <div class="stat">
-      <p class="label">Dispatches · 24h</p>
+      <p class="label">Dispatches · <select id="stats-range-select" title="applies to Dispatches + Est. saved">
+        <option value="24h">24h</option>
+        <option value="7d">7d</option>
+        <option value="1mo">1mo</option>
+        <option value="all">all</option>
+      </select></p>
       <p class="value" id="s-disp">—</p>
       <p class="foot" id="s-disp-foot">— tokens routed</p>
     </div>
     <div class="stat hero">
-      <p class="label">Est. saved · 24h</p>
+      <p class="label" id="s-saved-label">Est. saved · 24h</p>
       <p class="value" id="s-saved">—</p>
       <p class="foot" id="s-saved-foot">vs Claude Sonnet ($3/M)</p>
     </div>
@@ -655,8 +693,8 @@ const PAGE = `<!doctype html>
         <th data-sort="tier">Tier</th>
         <th data-sort="tags">Tags</th>
         <th data-sort="state">State</th>
-        <th data-sort="calls" class="num">Calls 24h</th>
-        <th data-sort="tokens" class="num">Tokens 24h</th>
+        <th data-sort="calls" class="num" id="th-calls">Calls 24h</th>
+        <th data-sort="tokens" class="num" id="th-tokens">Tokens 24h</th>
         <th data-sort="success" class="num">Success</th>
         <th data-sort="last_used_at">Last used</th>
         <th></th>
@@ -737,6 +775,13 @@ function sortAgents(agents, statsByAgent) {
       // Success ratio 0..1; agents with 0 calls sort as -1 (below the busy ones)
       av = sa && sa.count > 0 ? (sa.outcomes?.success || 0) / sa.count : -1;
       bv = sb && sb.count > 0 ? (sb.outcomes?.success || 0) / sb.count : -1;
+      // Tied ratio (very common — many agents sit at 100%) has no natural
+      // direction, so break it the same way regardless of asc/desc: more
+      // calls behind the ratio is a stronger signal, then id for determinism.
+      if (av === bv) {
+        const countDiff = (sb?.count || 0) - (sa?.count || 0);
+        return countDiff !== 0 ? countDiff : a.id.localeCompare(b.id);
+      }
     }
     else if (key === "last_used_at") { av = a.last_used_at || 0; bv = b.last_used_at || 0; }
     else if (key === "tags") { av = (a.tags || []).join(","); bv = (b.tags || []).join(","); }
@@ -844,6 +889,9 @@ function renderRows(agents, statsByAgent) {
         '<span class="pill ' + (a.state || "healthy") + '"' +
           (a.note ? ' title="' + esc(a.note) + '"' : '') +
         '>' + (a.state || "healthy") + '</span>' +
+        ((a.state === "quota_exhausted" || a.state === "rate_limited") && a.cooldown_until
+          ? '<span class="last-err">until ' + esc(new Date(a.cooldown_until * 1000).toLocaleString()) + '</span>'
+          : '') +
         errCell +
       '</td>' +
       '<td class="num ' + (calls === 0 ? 'zero' : '') + '">' + (calls || "—") + '</td>' +
@@ -956,12 +1004,18 @@ function renderStats(s) {
   document.getElementById("s-locked").textContent = s.locked_count;
   document.getElementById("s-locked-foot").textContent =
     s.locked_count > 0 ? "paste a key below to unlock" : "all providers configured";
-  document.getElementById("s-disp").textContent = fmtNum(s.dispatches_24h);
+  document.getElementById("s-disp").textContent = fmtNum(s.dispatches);
   document.getElementById("s-disp-foot").textContent =
-    fmtNum(s.tokens_24h) + " tokens routed";
-  document.getElementById("s-saved").textContent = fmtUsd(s.saved_usd_24h);
+    fmtNum(s.tokens) + " tokens routed";
+  document.getElementById("s-saved").textContent = fmtUsd(s.saved_usd);
   document.getElementById("s-saved-foot").textContent =
-    "vs Claude Sonnet ($" + s.saved_anchor.toFixed(0) + "/M) · " + fmtNum(s.tokens_free_24h) + " free-tier tokens";
+    "vs Claude Sonnet ($" + s.saved_anchor.toFixed(0) + "/M) · " + fmtNum(s.tokens_free) + " free-tier tokens";
+  document.getElementById("s-saved-label").textContent = "Est. saved · " + s.range;
+  // Per-row Calls/Tokens columns are populated from stats.by_agent, which is
+  // computed over the same selected range — keep their header text truthful.
+  document.getElementById("th-calls").textContent = "Calls " + s.range;
+  document.getElementById("th-tokens").textContent = "Tokens " + s.range;
+  document.getElementById("stats-range-select").value = s.range;
 }
 
 async function submitSuggest() {
@@ -1202,10 +1256,18 @@ async function saveKey(envName) {
   }
 }
 
+// Persisted alongside sort_key/sort_dir so a refresh doesn't reset it.
+let statsRange = localStorage.getItem("stats_range") || "24h";
+function setStatsRange(range) {
+  statsRange = range;
+  localStorage.setItem("stats_range", range);
+  refresh();
+}
+
 async function refresh() {
   const [state, stats] = await Promise.all([
     fetch("/api/state").then(r => r.json()),
-    fetch("/api/stats").then(r => r.json()),
+    fetch("/api/stats?range=" + encodeURIComponent(statsRange)).then(r => r.json()),
   ]);
   renderStats(stats);
   renderUnlock(state.agents);
@@ -1238,6 +1300,7 @@ async function verify(id) {
 document.querySelectorAll("#thead-row th[data-sort]").forEach(th => {
   th.addEventListener("click", () => setSort(th.dataset.sort));
 });
+document.getElementById("stats-range-select").addEventListener("change", (e) => setStatsRange(e.target.value));
 refresh();
 </script>
 </body>
@@ -1265,7 +1328,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && p === "/api/stats") {
-    return json(res, 200, computeStats());
+    return json(res, 200, computeStats(parsed.query.range));
   }
 
   if (req.method === "POST" && p === "/api/set_credential") {
