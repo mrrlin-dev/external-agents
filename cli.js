@@ -440,9 +440,14 @@ async function cmdAudit(flags) {
             : undefined;
         // Deep-merge so probe metadata (last_used_at, enabled flag) survives.
         const existing = readState()[entry.id] || {};
+        // A healthy probe CLEARS any stale cooldown/streak from a prior park — otherwise the
+        // recovered agent would carry a dead cooldown_until on a healthy record (undefined values
+        // are dropped by JSON.stringify, so this removes the keys).
+        const recovered = outcome === "healthy";
         writeState({
           [entry.id]: {
             ...existing,
+            ...(recovered ? { cooldown_until: undefined, source: undefined, consecutive_failures: 0 } : {}),
             state: outcome,
             note,
             checked: Math.floor(Date.now() / 1000),
