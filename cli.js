@@ -19,6 +19,7 @@ import yaml from "js-yaml";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
 import { runAny, resolveEscalation, parseExhaustionSignal, getStats, verifyCredential, auditCliEntry } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
+import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -141,20 +142,23 @@ async function cmdDispatch(args, flags) {
   const result = await runAny(entry, prompt, { transport });
   const now = Math.floor(Date.now() / 1000);
 
-  let outcome;
-  let statePatch;
-  if (result.exitCode === 0) {
-    statePatch = { [entry.id]: { state: "healthy", checked: now, last_used_at: now } };
-    outcome = "success";
-  } else {
-    const sig = parseExhaustionSignal(result.stderr + "\n" + result.output);
-    if (sig.detected) {
-      const cooldown_until = sig.reset_at != null ? sig.reset_at : now + 3600;
-      statePatch = { [entry.id]: { state: "quota_exhausted", cooldown_until, source: sig.reset_at != null ? "error_body" : "fallback_ttl", checked: now } };
-      outcome = "quota_exhausted";
-    } else outcome = "error";
-  }
-  if (statePatch) writeState(statePatch);
+  // Centralized outcome→state via nextStateAfterOutcome (lib/outcome.js): tracks
+  // consecutive_failures and applies an escalating cooldown (60s→5m→30m→2h→12h),
+  // so an agent that keeps failing — even with plain errors, which USED to write
+  // no state at all and got re-picked every round — drops out of `pick` for
+  // progressively longer. Success resets the streak. Same helper in server.js
+  // so the two dispatch surfaces never drift.
+  const ok = result.exitCode === 0;
+  const sig = ok ? { detected: false } : parseExhaustionSignal(result.stderr + "\n" + result.output);
+  const prev = readState()[entry.id];
+  const nextRec = nextStateAfterOutcome(prev, {
+    ok,
+    isExhaustion: !!sig.detected,
+    exhaustionResetAt: sig.reset_at,
+    now,
+  });
+  writeState({ [entry.id]: nextRec });
+  const outcome = ok ? "success" : (sig.detected ? "quota_exhausted" : "error");
 
   // --json: emit ONE structured object to stdout and nothing else — for
   // programmatic callers (mrrlin's runMultiHead, ADR 0022) that need

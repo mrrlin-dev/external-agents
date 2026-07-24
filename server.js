@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadRegistry } from "./lib/registry.js";
 import { readState, writeState, probeInstalled } from "./lib/state.js";
+import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { runAny, parseExhaustionSignal, resolveEscalation, getStats } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 
@@ -272,31 +273,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const result = await runAny(entry, prompt, { transport });
     const now = Math.floor(Date.now() / 1000);
 
-    let outcome;
-    let statePatch;
-
-    if (result.exitCode === 0) {
-      statePatch = { [entry.id]: { state: "healthy", checked: now, last_used_at: now } };
-      outcome = "success";
-    } else if (result.exitCode !== 0) {
-      const signal = parseExhaustionSignal(result.stderr + "\n" + result.output);
-      if (signal.detected) {
-        const cooldown_until = signal.reset_at != null ? signal.reset_at : now + 3600;
-        statePatch = {
-          [entry.id]: {
-            state: "quota_exhausted",
-            cooldown_until,
-            source: signal.reset_at != null ? "error_body" : "fallback_ttl",
-            checked: now,
-          },
-        };
-        outcome = "quota_exhausted";
-      } else {
-        outcome = "error";
-      }
-    }
-
-    if (statePatch) writeState(statePatch);
+    // Shared outcome→state (lib/outcome.js) — escalating cooldown on repeated
+    // failures; identical logic to cli.js so the two dispatch surfaces never drift.
+    const ok = result.exitCode === 0;
+    const signal = ok ? { detected: false } : parseExhaustionSignal(result.stderr + "\n" + result.output);
+    const prevRec = readState()[entry.id];
+    const nextRec = nextStateAfterOutcome(prevRec, {
+      ok,
+      isExhaustion: !!signal.detected,
+      exhaustionResetAt: signal.reset_at,
+      now,
+    });
+    writeState({ [entry.id]: nextRec });
+    const outcome = ok ? "success" : (signal.detected ? "quota_exhausted" : "error");
 
     const response = {
       agent_id: entry.id,
