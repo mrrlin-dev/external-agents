@@ -311,40 +311,45 @@ function cmdInit(flags) {
   // expected the UI to actually be reachable from outside the container.
   const port = Number(flags.port) || Number(process.env.EXTERNAL_AGENTS_UI_PORT) || 4711;
   const host = String(flags.host || process.env.EXTERNAL_AGENTS_UI_HOST || "127.0.0.1");
-  const url  = `http://${host}:${port}/`;
   const skipOpen = flags["no-open"] === true;
-  const opener =
-    process.platform === "darwin" ? "open" :
-    process.platform === "win32"  ? "cmd" :
-    "xdg-open";
-  const openerArgs = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  // Spawn UI first, then open browser after it starts listening.
+  // Spawn UI first, then open browser once it confirms it's actually listening.
   const uiPath = path.join(path.dirname(new URL(import.meta.url).pathname), "ui.js");
   const env = { ...process.env, EXTERNAL_AGENTS_UI_PORT: String(port), EXTERNAL_AGENTS_UI_HOST: host };
-  const child = spawn(process.execPath, [uiPath], { stdio: "inherit", env });
-  if (skipOpen) {
-    child.on("exit", (code) => process.exit(code ?? 0));
-    process.on("SIGINT",  () => child.kill("SIGINT"));
-    process.on("SIGTERM", () => child.kill("SIGTERM"));
-    return;
-  }
-  // Give the UI ~600ms to bind before opening the browser (loopback listen is
-  // usually instantaneous but we do not want the browser to open on a not-yet-
-  // bound port). Browser-open is best-effort — swallow BOTH sync spawn errors
-  // AND async 'error' events (ENOENT is emitted async, not thrown; without a
-  // listener it crashes the process — this is what breaks curl|bash on a
-  // headless Linux box that has no xdg-open installed). The UI keeps running.
-  setTimeout(() => {
+  // stderr is piped (not inherited) so this function can watch for ui.js's
+  // bound-port confirmation line — ui.js now falls back to PORT+1, PORT+2...
+  // when `port` is taken, so the real port can differ from what we requested,
+  // and blindly opening a browser at the requested `port` after a fixed delay
+  // (the old approach) would point at the wrong URL. Every chunk is still
+  // relayed to our own stderr unconditionally, so terminal output looks the
+  // same as before (stdin/stdout stay inherited either way).
+  const child = spawn(process.execPath, [uiPath], { stdio: ["inherit", "inherit", "pipe"], env });
+  let opened = skipOpen; // skip the open-once logic entirely when --no-open
+  child.stderr.on("data", (chunk) => {
+    process.stderr.write(chunk);
+    if (opened) return;
+    const match = chunk.toString().match(/external-agents ui: (https?:\/\/\S+)/);
+    if (!match) return;
+    opened = true;
+    const realUrl = match[1];
+    const opener =
+      process.platform === "darwin" ? "open" :
+      process.platform === "win32"  ? "cmd" :
+      "xdg-open";
+    const openerArgs = process.platform === "win32" ? ["/c", "start", "", realUrl] : [realUrl];
+    // Browser-open is best-effort — swallow BOTH sync spawn errors AND async
+    // 'error' events (ENOENT is emitted async, not thrown; without a listener
+    // it crashes the process — this is what breaks curl|bash on a headless
+    // Linux box that has no xdg-open installed). The UI keeps running either way.
     try {
       const opener_proc = spawn(opener, openerArgs, { stdio: "ignore", detached: true });
       opener_proc.on("error", (err) => {
-        console.error(`external-agents init: could not launch browser (${err.code || err.message}) — open ${url} manually.`);
+        console.error(`external-agents init: could not launch browser (${err.code || err.message}) — open ${realUrl} manually.`);
       });
       opener_proc.unref();
     } catch (err) {
-      console.error(`external-agents init: could not launch browser (${err.message}) — open ${url} manually.`);
+      console.error(`external-agents init: could not launch browser (${err.message}) — open ${realUrl} manually.`);
     }
-  }, 600);
+  });
   child.on("exit", (code) => process.exit(code ?? 0));
   process.on("SIGINT",  () => child.kill("SIGINT"));
   process.on("SIGTERM", () => child.kill("SIGTERM"));
