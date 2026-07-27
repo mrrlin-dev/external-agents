@@ -16,7 +16,14 @@ import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, parseExhaustionSignal, resolveEscalation, getStats } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 
-const REGISTRY = loadRegistry("./agents.yaml");
+// Resolve agents.yaml relative to THIS module, never the process cwd. As an
+// MCP server, external-agents-mcp is spawned by the client (Codex/Claude) with
+// an arbitrary cwd — a cwd-relative "./agents.yaml" threw
+// `ENOENT: ./agents.yaml` and the server never came up (no tools registered),
+// which is exactly why the auto-registered [mcp_servers.external_agents] block
+// looked dead. cli.js and ui.js already resolve module-relative; this aligns
+// server.js so no per-operator `cwd = ...` config workaround is needed.
+const REGISTRY = loadRegistry(path.join(path.dirname(new URL(import.meta.url).pathname), "agents.yaml"));
 
 // Env-var boot injection lives in the shared credentials module (single source
 // of truth for CLI + MCP server + UI). Priority: keys.env → Kilo auth store →
