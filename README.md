@@ -47,7 +47,7 @@ Requires Node ≥ 20. Works on macOS and Linux; Windows via WSL.
 
 ## What you get
 
-- **`dispatch(agent_id, prompt)`** — an MCP tool your primary agent calls. Auto-picks a healthy provider, retries on a different one if the first is rate-limited, honors the provider's own reset time (not a made-up 1h default).
+- **`dispatch(agent_id, prompt)`** — an MCP tool your primary agent calls. Auto-picks a healthy provider, retries on a different one if the first is rate-limited, honors the provider's own reset time (not a made-up 1h default). Pass `cwd` (an existing directory, e.g. a git worktree) to have an `edit_exists` agent run in it and edit files in place; omit it to run in a fresh isolated temp dir. When `cwd` is a git repo, the returned `files` list is the git-changed set, not the whole tree.
 - **`pick_agents(n, min_distinct_providers)`** — the primitive for multi-model panels. Fan out 2-4 distinct-provider votes in parallel for jury-style review, self-consistency checks, or your own consensus loop.
 - **Local dashboard** — `external-agents init` opens a loopback page where you paste keys inline, see live provider state, and check usage. Loopback only, never over the network, keys stored at `~/.local/state/external-agents/keys.env` (mode 0600).
 

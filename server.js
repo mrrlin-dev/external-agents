@@ -135,7 +135,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "task genuinely needs frontier capability. escalate_to_pro is a retry lever, not a " +
           "default. If a weak agent's output is wrong, first ask whether the SPEC was ambiguous " +
           "(fix the spec, re-dispatch weak) before escalating tier — reaching for stronger models " +
-          "hides prompt-engineering failures behind expensive compute.",
+          "hides prompt-engineering failures behind expensive compute." +
+          "\n\ncwd: absolute path of an existing directory (e.g. a git worktree) for an " +
+          "edit_exists agent to run IN and edit files in place. Omit to run in a fresh isolated " +
+          "temp dir (the default). Applies only to edit_exists (CLI) transports; ignored by " +
+          "generate_new (HTTP) agents. When cwd is a git repo, the returned `files` list is the " +
+          "git-changed set, not the whole tree.",
         inputSchema: {
           type: "object",
           properties: {
@@ -143,6 +148,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             prompt: { type: "string" },
             transport: { type: "string", enum: ["generate_new", "edit_exists"] },
             escalate_to_pro: { type: "boolean" },
+            cwd: { type: "string" },
           },
           required: ["agent_id", "prompt"],
         },
@@ -248,7 +254,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "dispatch") {
-    const { agent_id, prompt, transport, escalate_to_pro } = request.params.arguments;
+    const { agent_id, prompt, transport, escalate_to_pro, cwd } = request.params.arguments;
     if (!agent_id || !prompt) {
       throw new Error("dispatch: missing agent_id or prompt");
     }
@@ -278,7 +284,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       [entry.id]: { ...(state[entry.id] || {}), last_used_at: Math.floor(Date.now() / 1000) },
     });
 
-    const result = await runAny(entry, prompt, { transport });
+    const result = await runAny(entry, prompt, { transport, cwd });
     const now = Math.floor(Date.now() / 1000);
 
     // Shared outcome→state (lib/outcome.js) — escalating cooldown on repeated
@@ -307,6 +313,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       duration_ms: result.durationMs,
       output: result.output,
       workdir: result.workdir,
+      external: result.external,
       files: result.files,
     };
     if (escalatedFrom) response.escalated_from = escalatedFrom;

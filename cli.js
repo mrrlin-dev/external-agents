@@ -118,7 +118,7 @@ function cmdPick(flags) {
 async function cmdDispatch(args, flags) {
   const [agentId, ...promptParts] = args;
   const prompt = promptParts.join(" ");
-  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] \"<prompt>\"", 2);
+  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--transport generate_new|edit_exists] [--cwd <dir>] \"<prompt>\"", 2);
   if (!prompt) die("dispatch: missing prompt", 2);
 
   const src = findAgent(agentId);
@@ -140,7 +140,7 @@ async function cmdDispatch(args, flags) {
   writeState({ [entry.id]: { ...(cur[entry.id] || {}), last_used_at: Math.floor(Date.now() / 1000) } });
 
   const transport = flags.transport;  // "generate_new" | "edit_exists" | undefined
-  const result = await runAny(entry, prompt, { transport });
+  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd });
   const now = Math.floor(Date.now() / 1000);
 
   // Centralized outcome→state via nextStateAfterOutcome (lib/outcome.js): tracks
@@ -557,8 +557,9 @@ switch (subcmd) {
     console.error(`external-agents CLI — subcommands:
   pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists]
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
-  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] "<prompt>"
+  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--cwd <dir>] "<prompt>"
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
+       (--cwd = existing dir for an edit_exists agent to run in and edit in place; default = fresh temp dir; ignored by generate_new)
   status [--json]
   probe <agent-id>
   stats [--since ISO] [--json]
