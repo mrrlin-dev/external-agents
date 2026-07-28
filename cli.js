@@ -16,7 +16,7 @@
 //   probe <agent-id> → probes one agent, prints new state JSON
 import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
 import yaml from "js-yaml";
-import { readState, writeState, probeInstalled } from "./lib/state.js";
+import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
 import { runAny, resolveEscalation, parseExhaustionSignal, getStats, verifyCredential, auditCliEntry } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
@@ -127,7 +127,7 @@ async function cmdDispatch(args, flags) {
   let entry = src;
   let escalatedFrom;
   if (flags.pro) {
-    const esc = resolveEscalation(REGISTRY, agentId);
+    const esc = resolveEscalation(REGISTRY, agentId, readState());
     if (!esc) {
       console.error(JSON.stringify({ outcome: "no_escalation_candidate", requested: agentId }));
       process.exit(4);
@@ -304,8 +304,12 @@ async function cmdSetCredential(args) {
   }
   try {
     const persistedTo = persistCredential(envName, value);
+    const resetIds = resetCooldownsForEnvVar(envName, REGISTRY.agents);
     // Print to stderr so stdout stays clean for scripting; do NOT echo the value.
     console.error(`external-agents: ${envName} persisted to ${persistedTo}`);
+    if (resetIds.length > 0) {
+      console.error(`  Cooldowns reset for ${resetIds.length} agent(s): ${resetIds.join(", ")}`);
+    }
     console.error(`  Restart your MCP client (Codex / Claude Code) so its external-agents-mcp instance re-reads keys.env at startup.`);
   } catch (e) {
     die(`set-credential failed: ${e.message}`, 2);

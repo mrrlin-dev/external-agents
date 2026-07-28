@@ -10,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRegistry } from "./lib/registry.js";
-import { readState, writeState, probeInstalled } from "./lib/state.js";
+import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, parseExhaustionSignal, resolveEscalation, getStats } from "./lib/dispatch.js";
@@ -204,9 +204,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { env_name, value } = request.params.arguments || {};
     if (!env_name || !value) throw new Error("set_credential: env_name and value required");
     persistCredential(env_name, value);
+    const resetIds = resetCooldownsForEnvVar(env_name, REGISTRY.agents);
     return {
       content: [
-        { type: "text", text: JSON.stringify({ ok: true, env_name, persisted_to: KEYS_FILE, chars: value.length }) },
+        { type: "text", text: JSON.stringify({ ok: true, env_name, persisted_to: KEYS_FILE, chars: value.length, cooldowns_reset: resetIds }) },
       ],
     };
   }
@@ -267,7 +268,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     let entry = sourceEntry;
     let escalatedFrom;
     if (escalate_to_pro) {
-      const escalation = resolveEscalation(REGISTRY, agent_id);
+      const escalation = resolveEscalation(REGISTRY, agent_id, readState());
       if (!escalation) {
         return {
           content: [
