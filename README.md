@@ -1,4 +1,4 @@
-# @mrrlin-dev/external-agents
+# @mrrlin-dev/external-agents — Multi-LLM MCP Server
 
 [![Install to Claude Code](https://img.shields.io/badge/Install_to-Claude_Code-4a90e2?style=for-the-badge&logo=anthropic&logoColor=white)](#-2-minute-setup)
 [![Install to Codex](https://img.shields.io/badge/Install_to-Codex-24292f?style=for-the-badge&logo=openai&logoColor=white)](#-2-minute-setup)

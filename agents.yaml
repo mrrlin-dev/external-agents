@@ -101,12 +101,15 @@ agents:
         model: gemini-3-flash-preview
       edit_exists: "aider --model gemini/gemini-3-flash-preview"
 
+  # Google removed Gemini Pro from the free tier (limit: 0). Kept for paid
+  # plans — excluded from default picks via `paid` tag + `enabled: false`.
   - id: gemini-3-pro-preview
     provider: google
     model: gemini-3-pro-preview
     quota_scope: per_model
     tier: strong
-    tags: [quick, free]
+    tags: [quick, paid]
+    enabled: false
     auth: "env:GEMINI_API_KEY"
     usage_url: "https://aistudio.google.com/usage"
     transports:
@@ -121,7 +124,8 @@ agents:
     model: gemini-3.1-pro-preview
     quota_scope: per_model
     tier: strong
-    tags: [quick, free]
+    tags: [quick, paid]
+    enabled: false
     auth: "env:GEMINI_API_KEY"
     usage_url: "https://aistudio.google.com/usage"
     transports:
