@@ -127,7 +127,7 @@ async function cmdDispatch(args, flags) {
   let entry = src;
   let escalatedFrom;
   if (flags.pro) {
-    const esc = resolveEscalation(REGISTRY, agentId);
+    const esc = resolveEscalation(REGISTRY, agentId, readState());
     if (!esc) {
       console.error(JSON.stringify({ outcome: "no_escalation_candidate", requested: agentId }));
       process.exit(4);

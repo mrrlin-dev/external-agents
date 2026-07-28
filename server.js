@@ -268,7 +268,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     let entry = sourceEntry;
     let escalatedFrom;
     if (escalate_to_pro) {
-      const escalation = resolveEscalation(REGISTRY, agent_id);
+      const escalation = resolveEscalation(REGISTRY, agent_id, readState());
       if (!escalation) {
         return {
           content: [
