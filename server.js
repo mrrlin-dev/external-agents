@@ -140,7 +140,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "edit_exists agent to run IN and edit files in place. Omit to run in a fresh isolated " +
           "temp dir (the default). Applies only to edit_exists (CLI) transports; ignored by " +
           "generate_new (HTTP) agents. When cwd is a git repo, the returned `files` list is the " +
-          "git-changed set, not the whole tree.",
+          "git-changed set, not the whole tree." +
+          "\n\nfiles: array of {path, lines?, label?} entries. Their contents are read from disk " +
+          "and prepended to the prompt as a structured context block. CRITICAL for generate_new " +
+          "agents (they have ZERO filesystem access — without files they hallucinate code shapes). " +
+          "Strongly recommended for edit_exists too (scopes the agent to the right files instead " +
+          "of relying on aider/codex file-discovery heuristics). Paths resolve relative to cwd. " +
+          "IMPORTANT: when using files, ALWAYS pass cwd (the repo root) — it serves as the " +
+          "containment basedir for path resolution and security. Without cwd, paths resolve against " +
+          "the MCP server process cwd, which is likely wrong.",
         inputSchema: {
           type: "object",
           properties: {
@@ -149,6 +157,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             transport: { type: "string", enum: ["generate_new", "edit_exists"] },
             escalate_to_pro: { type: "boolean" },
             cwd: { type: "string" },
+            files: {
+              type: "array",
+              description:
+                "Attach file contents to the prompt so the agent sees real code, not hallucinated shapes. " +
+                "Each entry: { path: 'relative/or/absolute', lines?: '10-50', label?: 'short name' }. " +
+                "Paths resolve relative to cwd (or process cwd). The contents are prepended to the prompt " +
+                "as a structured context block. Essential for generate_new agents (no filesystem access) " +
+                "and strongly recommended for edit_exists (scopes the agent to the right files).",
+              items: {
+                type: "object",
+                properties: {
+                  path: { type: "string", description: "File path (absolute or relative to cwd)" },
+                  lines: { type: "string", description: "Line range, e.g. '10-50'. Omit for entire file." },
+                  label: { type: "string", description: "Display label in the context block. Defaults to the path." },
+                },
+                required: ["path"],
+              },
+            },
           },
           required: ["agent_id", "prompt"],
         },
@@ -255,7 +281,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "dispatch") {
-    const { agent_id, prompt, transport, escalate_to_pro, cwd } = request.params.arguments;
+    const { agent_id, prompt, transport, escalate_to_pro, cwd, files } = request.params.arguments;
     if (!agent_id || !prompt) {
       throw new Error("dispatch: missing agent_id or prompt");
     }
@@ -285,7 +311,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       [entry.id]: { ...(state[entry.id] || {}), last_used_at: Math.floor(Date.now() / 1000) },
     });
 
-    const result = await runAny(entry, prompt, { transport, cwd });
+    const result = await runAny(entry, prompt, { transport, cwd, files });
     const now = Math.floor(Date.now() / 1000);
 
     // Shared outcome→state (lib/outcome.js) — escalating cooldown on repeated
