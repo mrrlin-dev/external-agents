@@ -42,6 +42,7 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 // eats the positional — the prompt vanishes ("missing prompt"). Same latent
 // trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
 const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force"]);
+const ARRAY_FLAGS = new Set(["file"]);
 function parseArgs(argv) {
   const args = [];
   const flags = {};
@@ -50,8 +51,11 @@ function parseArgs(argv) {
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const nxt = argv[i + 1];
-      if (!BOOLEAN_FLAGS.has(key) && nxt !== undefined && !nxt.startsWith("--")) { flags[key] = nxt; i++; }
-      else flags[key] = true;
+      if (ARRAY_FLAGS.has(key) && nxt !== undefined && !nxt.startsWith("--")) {
+        if (!Array.isArray(flags[key])) flags[key] = [];
+        flags[key].push(nxt); i++;
+      } else if (!BOOLEAN_FLAGS.has(key) && nxt !== undefined && !nxt.startsWith("--")) { flags[key] = nxt; i++; }
+      else if (!ARRAY_FLAGS.has(key)) flags[key] = true;
     } else args.push(a);
   }
   return { args, flags };
@@ -118,8 +122,18 @@ function cmdPick(flags) {
 async function cmdDispatch(args, flags) {
   const [agentId, ...promptParts] = args;
   const prompt = promptParts.join(" ");
-  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--transport generate_new|edit_exists] [--cwd <dir>] \"<prompt>\"", 2);
+  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--transport generate_new|edit_exists] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
   if (!prompt) die("dispatch: missing prompt", 2);
+
+  // --file path[:lines] — repeatable. "src/foo.ts:10-50" → {path, lines}.
+  const rawFiles = Array.isArray(flags.file) ? flags.file : [];
+  const fileEntries = rawFiles.map((f) => {
+    const colonIdx = f.lastIndexOf(":");
+    if (colonIdx > 0 && /^\d+-\d+$/.test(f.slice(colonIdx + 1))) {
+      return { path: f.slice(0, colonIdx), lines: f.slice(colonIdx + 1) };
+    }
+    return { path: f };
+  });
 
   const src = findAgent(agentId);
   if (!src) die(`unknown agent: ${agentId}`, 3);
@@ -140,7 +154,8 @@ async function cmdDispatch(args, flags) {
   writeState({ [entry.id]: { ...(cur[entry.id] || {}), last_used_at: Math.floor(Date.now() / 1000) } });
 
   const transport = flags.transport;  // "generate_new" | "edit_exists" | undefined
-  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd });
+  const files = fileEntries.length > 0 ? fileEntries : undefined;
+  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd, files });
   const now = Math.floor(Date.now() / 1000);
 
   // Centralized outcome→state via nextStateAfterOutcome (lib/outcome.js): tracks
@@ -561,9 +576,10 @@ switch (subcmd) {
     console.error(`external-agents CLI — subcommands:
   pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists]
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
-  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--cwd <dir>] "<prompt>"
+  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--cwd <dir>] [--file path[:lines]] "<prompt>"
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
        (--cwd = existing dir for an edit_exists agent to run in and edit in place; default = fresh temp dir; ignored by generate_new)
+       (--file = attach file contents to prompt; repeatable; path:10-50 for line range; paths relative to --cwd)
   status [--json]
   probe <agent-id>
   stats [--since ISO] [--json]
