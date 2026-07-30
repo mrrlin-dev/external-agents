@@ -38,6 +38,8 @@
 #               token, cookie, OAuth session; whatever `<tool> login` writes)
 #
 # Tags are opaque strings. UI styles `free` as a green $0 badge.
+# Keep disabled paid entries narrow and justified: bundle them only when they
+# reuse an already-bundled auth surface and act as a low-friction upgrade path.
 # Env overrides live under `env:` (values may be "@file:~/path" refs).
 schema_version: 1
 agents:
@@ -163,8 +165,9 @@ agents:
         effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
         effort_verified: validated
 
-  # Google removed Gemini Pro from the free tier (limit: 0). Kept for paid
-  # plans — excluded from default picks via `paid` tag + `enabled: false`.
+  # Google removed Gemini Pro from the free tier (limit: 0). These paid
+  # upgrades reuse the same GEMINI_API_KEY auth surface, so they stay bundled
+  # but excluded from default picks via `paid` tag + `enabled: false`.
   - id: gemini-3-pro-preview
     provider: google
     model: gemini-3-pro-preview
@@ -219,7 +222,7 @@ agents:
     model: deepseek-v4-flash
     quota_scope: shared
     tier: weak
-    tags: [quick]
+    tags: [quick, cheap]
     auth: "env:DEEPSEEK_API_KEY"
     preference_order: 10
     usage_url: "https://platform.deepseek.com/usage"
@@ -243,7 +246,7 @@ agents:
     model: deepseek-v4-pro
     quota_scope: shared
     tier: strong
-    tags: [quick, reasoning]
+    tags: [quick, reasoning, cheap]
     auth: "env:DEEPSEEK_API_KEY"
     usage_url: "https://platform.deepseek.com/usage"
     transports:
@@ -263,7 +266,8 @@ agents:
 
   # Z.ai (GLM) removed — glm-4.7 (formerly glm-4.7-flash) now requires a
   # paid Z.ai plan or resource package, mirroring the Cerebras situation
-  # (0.13.0). Users on a paid Z.ai plan can restore locally via
+  # (0.13.0). This requires a new paid provider relationship rather than a
+  # shared-auth upgrade, so users can restore locally via
   # `external-agents add-model --provider zai ...`.
 
   # ============ Groq — free tier, ~500-800 tok/s ============
@@ -464,8 +468,9 @@ agents:
 
   # Cerebras removed in 0.13.0 — every currently-hosted model
   # (gpt-oss-120b, zai-glm-4.7, gemma-4-31b) returned HTTP 402 "Payment
-  # required" against a standard account. No usable free tier remains.
-  # Users on a paid Cerebras plan can add the entries via
+  # required" against a standard account. No usable free tier remains, and
+  # this is a new paid provider relationship rather than a shared-auth
+  # upgrade. Users on a paid Cerebras plan can add the entries via
   # `external-agents add-model --provider cerebras ...` — see README.
 
   # ============ Ollama Cloud (via localhost daemon → cloud proxy) ============
