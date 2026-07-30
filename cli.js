@@ -43,7 +43,7 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 // trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
 const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force"]);
 const ARRAY_FLAGS = new Set(["file"]);
-const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh"]);
+const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh", "max"]);
 const EFFORT_UNSUPPORTED_EXIT = 5;
 function parseArgs(argv) {
   const args = [];
@@ -67,7 +67,7 @@ function findAgent(id) { return REGISTRY.agents.find((a) => a.id === id); }
 function resolveEffort(entry, transport, effort) {
   if (!effort) return undefined;
   if (!VALID_EFFORT_LEVELS.has(effort)) {
-    die(`dispatch: invalid --effort '${effort}' (valid: none, minimal, default, low, medium, high, xhigh)`, 2);
+    die(`dispatch: invalid --effort '${effort}' (valid: none, minimal, default, low, medium, high, xhigh, max)`, 2);
   }
   const config = getTransportConfig(entry, transport);
   const supported = Array.isArray(config?.effort_levels) ? config.effort_levels : [];
@@ -92,7 +92,7 @@ function cmdPick(flags) {
   if (flags.transport) baseFilter.transport = flags.transport;
   if (flags.effort) {
     if (!VALID_EFFORT_LEVELS.has(String(flags.effort))) {
-      die(`pick: invalid --effort '${flags.effort}' (valid: none, minimal, default, low, medium, high, xhigh)`, 2);
+      die(`pick: invalid --effort '${flags.effort}' (valid: none, minimal, default, low, medium, high, xhigh, max)`, 2);
     }
     baseFilter.effort = String(flags.effort);
   }
@@ -601,7 +601,7 @@ switch (subcmd) {
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
   dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] "<prompt>"
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
-       (--effort = one of none|minimal|default|low|medium|high|xhigh; fails loud if the chosen transport does not declare support; exit code 5)
+       (--effort = one of none|minimal|default|low|medium|high|xhigh|max; fails loud if the chosen transport does not declare support; exit code 5)
        (--cwd = existing dir for an edit_exists agent to run in and edit in place; default = fresh temp dir; ignored by generate_new)
        (--file = attach file contents to prompt; repeatable; path:10-50 for line range; paths relative to --cwd)
   status [--json]
