@@ -7,6 +7,8 @@
 
 **Route work from your coding agent across 20+ low-cost LLMs. Cut your bill 10-100×.**
 
+Changelog: [CHANGELOG.md](CHANGELOG.md)
+
 ![architecture: primary agent → external-agents → six provider buckets, one pool of tokens](docs/hero.png)
 
 Your Google + Groq + OpenRouter + Ollama Cloud free tiers, plus cheap direct APIs like DeepSeek, all have **separate provider buckets**. `external-agents` treats them as one pool: round-robin dispatch, cooldown-aware, auto-fallback on 429. Same agentic workload that used to cost $10-100/day on one premium model can often run at effectively $0-very-low-cost. Also the perfect substrate for [LLM-Council](https://github.com/karpathy/llm-council)-style multi-model panels — `pick_agents` gives you N distinct-provider picks in one call.
@@ -49,6 +51,7 @@ Requires Node ≥ 20. Works on macOS and Linux; Windows via WSL.
 
 - **`dispatch(agent_id, prompt)`** — an MCP tool your primary agent calls. Auto-picks a healthy provider, retries on a different one if the first is rate-limited, honors the provider's own reset time (not a made-up 1h default). Pass `cwd` (an existing directory, e.g. a git worktree) to have an `edit_exists` agent run in it and edit files in place; omit it to run in a fresh isolated temp dir. When `cwd` is a git repo, the returned `files` list is the git-changed set, not the whole tree.
 - **`pick_agents(n, min_distinct_providers)`** — the primitive for multi-model panels. Fan out 2-4 distinct-provider votes in parallel for jury-style review, self-consistency checks, or your own consensus loop.
+- **Reasoning effort is transport-scoped and explicit** — use `--effort <level>` when the quality of the reasoning matters; see [docs/effort.md](docs/effort.md) for supported levels, tradeoffs, and provider-specific delivery.
 - **Local dashboard** — `external-agents init` opens a loopback page where you paste keys inline, see live provider state, and check usage. Loopback only, never over the network, keys stored at `~/.local/state/external-agents/keys.env` (mode 0600).
 
 Your primary agent (Claude Code, Codex, Cursor) gets these as MCP tools automatically after the setup script above.
@@ -84,6 +87,10 @@ Registry lives inside the package — `npm i -g @mrrlin-dev/external-agents@late
 - `⏳ rate_limited` — hit the provider's current limit, will recover
 
 Runs concurrent per provider to respect rate limits. Writes verdicts to `state.json` — the UI and dispatch pick immediately reflect ground truth. `--provider google` narrows to one bucket.
+
+## Reasoning effort
+
+See [docs/effort.md](docs/effort.md) for when to use `--effort`, the verified per-agent level table, and how each provider expects the setting to be delivered.
 
 **`external-agents add-model`** — add your own entry (internal endpoint, beta model, whatever) without touching the package:
 ```bash

@@ -98,6 +98,37 @@ external-agents dispatch gen-deepseek-chat "Reply OK if you can read this."
 
 The terminal should output the raw response text from the LLM.
 
+## Optional: declare reasoning effort
+
+Reasoning effort is a transport-level capability. Declare it only when you have verified the accepted enum for that exact provider/model path.
+
+`generate_new` example:
+
+```yaml
+transports:
+  generate_new:
+    url: "https://example.com/v1/chat/completions"
+    env: EXAMPLE_API_KEY
+    model: example-model
+    effort_levels: [low, medium, high]
+```
+
+`edit_exists` example:
+
+```yaml
+transports:
+  edit_exists:
+    cmd: "codex exec --skip-git-repo-check"
+    effort_levels: [low, medium, high, xhigh]
+    effort_flag: "-c model_reasoning_effort={level}"
+```
+
+Rules:
+
+- Omit `effort_levels` when support is unknown or unavailable.
+- Legacy `edit_exists: "some-cli ..."` entries still load unchanged.
+- `dispatch --effort` fails loud when the selected transport does not declare the requested level.
+
 ## Choosing between transports
 
 | Feature | `aider` | `generate` |
