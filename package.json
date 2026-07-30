@@ -54,6 +54,7 @@
     "ui.js",
     "lib/",
     "agents.yaml",
+    "CHANGELOG.md",
     "docs/",
     "README.md",
     "LICENSE",
