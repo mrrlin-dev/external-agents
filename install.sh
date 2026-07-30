@@ -7,7 +7,8 @@
 #      (Claude Code + Codex). Missing hosts are skipped, not fatal.
 #   3. Launches `external-agents init` — brings the local dashboard up on
 #      http://127.0.0.1:4711 and opens it in your default browser so you can
-#      paste API keys for the free-tier providers (Groq, Cerebras, OpenRouter).
+#      paste API keys for bundled providers (for example Groq, OpenRouter,
+#      Gemini, or DeepSeek).
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/mrrlin-dev/external-agents/main/install.sh | bash
@@ -36,7 +37,7 @@ ok "Installed. Binaries: external-agents, external-agents-mcp"
 # a separate Python package because npm cannot install Python code. Best-
 # effort: pipx first (isolated, cleanest), then pip3 --user, then a warning.
 # We do NOT fail the install if none of those work — the operator can still
-# use generate_new transport for free-tier providers, and install aider later.
+# use generate_new transport for bundled API-key providers, and install aider later.
 say "Installing aider (Python — for agentic file-editing transport)…"
 if command -v aider >/dev/null 2>&1; then
   ok "aider already installed: $(aider --version 2>&1 | head -1)"
@@ -61,7 +62,7 @@ elif command -v python3 >/dev/null 2>&1; then
   fi
 else
   warn "python3 not found on PATH — skipping aider. Install Python 3.10+ then run: pip install aider-chat"
-  warn "  Free-tier providers (Groq / Cerebras / OpenRouter / Gemini / DeepSeek) still work through the 'generate_new' transport (native fetch — no aider required)."
+  warn "  API-key providers (Groq / OpenRouter / Gemini / DeepSeek) still work through the 'generate_new' transport (native fetch — no aider required)."
 fi
 
 # 2) Register the MCP server with every host we can find. Errors are non-fatal
@@ -82,6 +83,6 @@ fi
 
 # 3) Launch the dashboard. `init` foregrounds the UI process AND opens the
 # browser; the operator hits Ctrl-C when done.
-say "Launching the local dashboard — paste your free-tier API keys inline…"
+say "Launching the local dashboard — paste your provider API keys inline…"
 say "(Press Ctrl-C to quit the dashboard once you are done.)"
 exec external-agents init

@@ -5,11 +5,11 @@
 [![One-command install](https://img.shields.io/badge/curl_%7C_bash-one_command-4a8?style=for-the-badge)](#-2-minute-setup)
 [![npm](https://img.shields.io/npm/v/@mrrlin-dev/external-agents?style=for-the-badge)](https://www.npmjs.com/package/@mrrlin-dev/external-agents)
 
-**Route work from your coding agent across 20+ free-tier LLMs. Cut your bill 10-100×.**
+**Route work from your coding agent across 20+ low-cost LLMs. Cut your bill 10-100×.**
 
-![architecture: primary agent → external-agents → six free-tier providers, one pool of tokens](docs/hero.png)
+![architecture: primary agent → external-agents → six provider buckets, one pool of tokens](docs/hero.png)
 
-Your Google + Groq + OpenRouter + Ollama Cloud free tiers all have **separate quota buckets**. `external-agents` treats them as one pool: round-robin dispatch, cooldown-aware, auto-fallback on 429. Same agentic workload that used to cost $10-100/day on one paid model runs at effectively $0. Also the perfect substrate for [LLM-Council](https://github.com/karpathy/llm-council)-style multi-model panels — `pick_agents` gives you N distinct-provider picks in one call.
+Your Google + Groq + OpenRouter + Ollama Cloud free tiers, plus cheap direct APIs like DeepSeek, all have **separate provider buckets**. `external-agents` treats them as one pool: round-robin dispatch, cooldown-aware, auto-fallback on 429. Same agentic workload that used to cost $10-100/day on one premium model can often run at effectively $0-very-low-cost. Also the perfect substrate for [LLM-Council](https://github.com/karpathy/llm-council)-style multi-model panels — `pick_agents` gives you N distinct-provider picks in one call.
 
 ---
 
@@ -19,7 +19,7 @@ Your Google + Groq + OpenRouter + Ollama Cloud free tiers all have **separate qu
 curl -fsSL https://raw.githubusercontent.com/mrrlin-dev/external-agents/main/install.sh | bash
 ```
 
-That's it. The script installs the package, registers the MCP server with Claude Code + Codex (whichever you have), and opens the local dashboard so you can paste free-tier API keys inline:
+That's it. The script installs the package, registers the MCP server with Claude Code + Codex (whichever you have), and opens the local dashboard so you can paste provider API keys inline:
 
 ![paste-and-save walkthrough — banner → password input → Save → confirmation](docs/ui-walkthrough.gif)
 
@@ -60,28 +60,28 @@ Your primary agent (Claude Code, Codex, Cursor) gets these as MCP tools automati
 | | | |
 |---|---|---|
 | **Gemini** (Google AI Studio) | **Groq** | **OpenRouter** :free |
-| 7 model variants, per-model quota | 4 models incl. gpt-oss 120B/20B | 6 :free models incl. Nvidia Nemotron 550B |
+| 5 free variants + 2 disabled paid upgrades, per-model quota | 4 models incl. gpt-oss 120B/20B | 6 :free models incl. Nvidia Nemotron 550B |
 | **Ollama Cloud** | **DeepSeek** | **Anthropic Claude** |
-| gpt-oss 20B/120B via local daemon | Cheap direct API (v4-flash + v4-pro) | Subscription (Opus 4.8/4.7 + Sonnet 5 + Haiku 4.5) |
+| gpt-oss 20B/120B via local daemon | Cheap pay-as-you-go API (v4-flash + v4-pro) | Subscription (Opus 4.8 + Sonnet 5 + Haiku 4.5) |
 | **Codex** | **cursor-agent** | **opencode** |
 | Subscription (GPT-5 family) | CLI agentic reviewer | CLI agentic reviewer |
 | **kiro-cli** | | |
 | AWS Kiro headless | | |
 
-_Cerebras dropped in 0.13.0 and Z.ai in this release — both require paid plans now, no usable free tier. Add locally via `add-model` if you have a paid plan._
+_Cerebras dropped in 0.13.0 and Z.ai in this release — both require new paid-provider setup, so they are no longer bundled. Add locally via `add-model` if you have a paid plan._
 
 Missing a provider? [Suggest it](https://github.com/mrrlin-dev/external-agents/issues/new?labels=missing-model) — the built-in UI has a form that opens a pre-filled issue.
 
 ### Keeping the list honest
 
-Registry lives inside the package — `npm i -g @mrrlin-dev/external-agents@latest` gets you the curated, tested list. What matters day-to-day is knowing whether **your account** still has access to each model (providers deprecate models, free tiers rotate).
+Registry lives inside the package — `npm i -g @mrrlin-dev/external-agents@latest` gets you the curated, tested list. What matters day-to-day is knowing whether **your account** still has access to each model (providers deprecate models, free tiers rotate, and paid catalogs change too).
 
 **`external-agents audit [--provider P] [--json]`** — force a real API round-trip for every entry that has a `generate_new` transport. Detects three classes of drift in one pass:
 
 - `✓ healthy` — key works, model exists
 - `⚠ needs_auth` — 401 / 403 (paste or refresh the key)
 - `✗ model_unavailable` — key is fine but this specific model isn't on your tier (e.g. Cerebras deprecated a model)
-- `⏳ rate_limited` — hit the free-tier ceiling, will recover
+- `⏳ rate_limited` — hit the provider's current limit, will recover
 
 Runs concurrent per provider to respect rate limits. Writes verdicts to `state.json` — the UI and dispatch pick immediately reflect ground truth. `--provider google` narrows to one bucket.
 
