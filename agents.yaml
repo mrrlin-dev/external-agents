@@ -407,6 +407,13 @@ agents:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
         model: google/gemma-4-31b-it:free
+        # OpenRouter validates reasoning.effort at the router, uniformly for
+        # every model it fronts: an out-of-enum value 400s even while the
+        # underlying model is 429. Gemma is not a reasoning model, so it will
+        # likely ignore the level — accepted, not necessarily honored.
+        effort_param: nested
+        effort_levels: [none, minimal, low, medium, high, xhigh, max]
+        effort_verified: passthrough
       edit_exists: "aider --model openrouter/google/gemma-4-31b-it:free"
 
   - id: openrouter-gpt-oss-20b-free
