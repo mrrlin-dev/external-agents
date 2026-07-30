@@ -49,6 +49,7 @@ Requires Node ≥ 20. Works on macOS and Linux; Windows via WSL.
 
 - **`dispatch(agent_id, prompt)`** — an MCP tool your primary agent calls. Auto-picks a healthy provider, retries on a different one if the first is rate-limited, honors the provider's own reset time (not a made-up 1h default). Pass `cwd` (an existing directory, e.g. a git worktree) to have an `edit_exists` agent run in it and edit files in place; omit it to run in a fresh isolated temp dir. When `cwd` is a git repo, the returned `files` list is the git-changed set, not the whole tree.
 - **`pick_agents(n, min_distinct_providers)`** — the primitive for multi-model panels. Fan out 2-4 distinct-provider votes in parallel for jury-style review, self-consistency checks, or your own consensus loop.
+- **Reasoning effort is transport-scoped and explicit** — `dispatch --effort <level>` only works when the chosen transport declares that level in `agents.yaml`; otherwise it fails loud. `pick --effort <level>` filters to agents that actually advertise support.
 - **Local dashboard** — `external-agents init` opens a loopback page where you paste keys inline, see live provider state, and check usage. Loopback only, never over the network, keys stored at `~/.local/state/external-agents/keys.env` (mode 0600).
 
 Your primary agent (Claude Code, Codex, Cursor) gets these as MCP tools automatically after the setup script above.
@@ -84,6 +85,37 @@ Registry lives inside the package — `npm i -g @mrrlin-dev/external-agents@late
 - `⏳ rate_limited` — hit the free-tier ceiling, will recover
 
 Runs concurrent per provider to respect rate limits. Writes verdicts to `state.json` — the UI and dispatch pick immediately reflect ground truth. `--provider google` narrows to one bucket.
+
+## Reasoning effort
+
+`external-agents` now declares reasoning-effort support per transport in `agents.yaml`.
+
+- `generate_new` uses `effort_levels: [...]` and maps a requested level to the OpenAI-compatible `reasoning_effort` field.
+- `edit_exists` can stay the legacy bare string form, or use a map with `cmd`, `effort_levels`, and `effort_flag`.
+- If `effort_levels` is absent, effort is unsupported. `dispatch --effort ...` fails non-zero instead of silently dropping the request.
+
+CLI surface:
+
+```bash
+external-agents dispatch <agent-id> --effort <level> "<prompt>"
+external-agents pick --effort <level> [--transport generate_new|edit_exists]
+```
+
+Accepted request values are `none`, `minimal`, `default`, `low`, `medium`, `high`, and `xhigh`, but each transport only accepts its declared subset.
+
+Verified support summary:
+
+- Gemini `generate_new`: `none`, `minimal`, `low`, `medium`, `high`
+- Groq GPT-OSS `generate_new`: `none`, `default`, `low`, `medium`, `high`
+- Codex `edit_exists`: `low`, `medium`, `high`, `xhigh`
+- OpenRouter passthrough entries: `low`, `medium`, `high`; the two Nemotron entries also declare `xhigh`, but only as accepted-but-unverified passthrough
+
+Important caveats:
+
+- `xhigh` is only genuinely available on Codex.
+- Gemini and Groq cap at `high`.
+- OpenRouter acceptance is passthrough and unverified as true model-side honoring.
+- Unknown or explicitly unsupported models declare nothing.
 
 **`external-agents add-model`** — add your own entry (internal endpoint, beta model, whatever) without touching the package:
 ```bash

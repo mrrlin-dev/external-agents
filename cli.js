@@ -17,7 +17,7 @@
 import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
-import { runAny, resolveEscalation, parseExhaustionSignal, getStats, verifyCredential, auditCliEntry } from "./lib/dispatch.js";
+import { runAny, resolveEscalation, parseExhaustionSignal, getStats, verifyCredential, auditCliEntry, getTransportConfig } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
@@ -43,6 +43,7 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 // trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
 const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force"]);
 const ARRAY_FLAGS = new Set(["file"]);
+const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh", "max"]);
 function parseArgs(argv) {
   const args = [];
   const flags = {};
@@ -62,6 +63,16 @@ function parseArgs(argv) {
 }
 function die(msg, code = 2) { console.error(msg); process.exit(code); }
 function findAgent(id) { return REGISTRY.agents.find((a) => a.id === id); }
+function resolveEffort(entry, transport, effort) {
+  if (!effort) return undefined;
+  if (!VALID_EFFORT_LEVELS.has(effort)) {
+    die(`dispatch: invalid --effort '${effort}' (valid: none, minimal, default, low, medium, high, xhigh, max)`, 2);
+  }
+  const config = getTransportConfig(entry, transport);
+  const supported = Array.isArray(config?.effort_levels) ? config.effort_levels : [];
+  if (supported.includes(effort)) return effort;
+  return undefined;
+}
 
 // --- subcommands --------------------------------------------------
 function cmdPick(flags) {
@@ -75,6 +86,12 @@ function cmdPick(flags) {
     baseFilter.exclude_ids = [...(baseFilter.exclude_ids || []), ...ids];
   }
   if (flags.transport) baseFilter.transport = flags.transport;
+  if (flags.effort) {
+    if (!VALID_EFFORT_LEVELS.has(String(flags.effort))) {
+      die(`pick: invalid --effort '${flags.effort}' (valid: none, minimal, default, low, medium, high, xhigh, max)`, 2);
+    }
+    baseFilter.effort = String(flags.effort);
+  }
   const minDistinct = flags["min-distinct-providers"] ? parseInt(flags["min-distinct-providers"], 10) : undefined;
   const state = readState();
 
@@ -122,7 +139,7 @@ function cmdPick(flags) {
 async function cmdDispatch(args, flags) {
   const [agentId, ...promptParts] = args;
   const prompt = promptParts.join(" ");
-  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--transport generate_new|edit_exists] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
+  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
   if (!prompt) die("dispatch: missing prompt", 2);
 
   // --file path[:lines] — repeatable. "src/foo.ts:10-50" → {path, lines}.
@@ -154,8 +171,10 @@ async function cmdDispatch(args, flags) {
   writeState({ [entry.id]: { ...(cur[entry.id] || {}), last_used_at: Math.floor(Date.now() / 1000) } });
 
   const transport = flags.transport;  // "generate_new" | "edit_exists" | undefined
+  const resolvedTransport = transport || (getTransportConfig(entry, "generate_new") ? "generate_new" : "edit_exists");
+  const effort = resolveEffort(entry, resolvedTransport, flags.effort ? String(flags.effort) : undefined);
   const files = fileEntries.length > 0 ? fileEntries : undefined;
-  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd, files });
+  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd, files, effort });
   const now = Math.floor(Date.now() / 1000);
 
   // Centralized outcome→state via nextStateAfterOutcome (lib/outcome.js): tracks
@@ -574,10 +593,12 @@ switch (subcmd) {
   case "--help":
   case undefined:
     console.error(`external-agents CLI — subcommands:
-  pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists]
+  pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists] [--effort <level>]
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
-  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--cwd <dir>] [--file path[:lines]] "<prompt>"
+  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] "<prompt>"
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
+       (--effort = reasoning depth. Use \`high\` for planning, design and review;
+        omit it for mechanical edits and lookups — the provider's own default applies.)
        (--cwd = existing dir for an edit_exists agent to run in and edit in place; default = fresh temp dir; ignored by generate_new)
        (--file = attach file contents to prompt; repeatable; path:10-50 for line range; paths relative to --cwd)
   status [--json]
