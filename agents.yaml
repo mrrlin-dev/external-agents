@@ -5,9 +5,16 @@
 #   transports.generate_new  — native fetch → OpenAI-compat /chat/completions.
 #     Dispatcher writes the response content to workdir/generated.md. Ideal
 #     for "produce the contents of this file from spec". Preferred by default.
+#     Optional `effort_levels: [...]` declares supported reasoning-effort
+#     values for this transport. If omitted, effort is unsupported.
 #   transports.edit_exists   — spawns aider (or another agentic CLI). Used when
 #     the caller explicitly requests transport="edit_exists" (iterative edits,
 #     multi-file, tool use — aider's core strength).
+#     May stay a legacy bare string command, or be a map with:
+#       cmd: "codex exec ..."
+#       effort_levels: [low, medium, high, xhigh]
+#       effort_flag: "-c model_reasoning_effort={level}"
+#     If `effort_levels` is absent, effort is unsupported for that transport.
 # When both are present, `runAny` picks `generate_new` unless overridden.
 #
 # Auth surfaces (2, merged from previous 3):
@@ -35,6 +42,7 @@ agents:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
         model: gemini-3.5-flash-lite
+        effort_levels: [none, minimal, low, medium, high]
       edit_exists: "aider --model gemini/gemini-3.5-flash-lite"
 
   - id: gemini-3.1-flash-lite
@@ -51,6 +59,7 @@ agents:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
         model: gemini-3.1-flash-lite
+        effort_levels: [none, minimal, low, medium, high]
       edit_exists: "aider --model gemini/gemini-3.1-flash-lite"
 
   - id: gemini-3.6-flash
@@ -67,6 +76,7 @@ agents:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
         model: gemini-3.6-flash
+        effort_levels: [none, minimal, low, medium, high]
       edit_exists: "aider --model gemini/gemini-3.6-flash"
 
   - id: gemini-3.5-flash
@@ -83,6 +93,7 @@ agents:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
         model: gemini-3.5-flash
+        effort_levels: [none, minimal, low, medium, high]
       edit_exists: "aider --model gemini/gemini-3.5-flash"
 
   - id: gemini-3-flash-preview
@@ -99,6 +110,7 @@ agents:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
         model: gemini-3-flash-preview
+        effort_levels: [none, minimal, low, medium, high]
       edit_exists: "aider --model gemini/gemini-3-flash-preview"
 
   # Google removed Gemini Pro from the free tier (limit: 0). Kept for paid
@@ -117,6 +129,7 @@ agents:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
         model: gemini-3-pro-preview
+        effort_levels: [none, minimal, low, medium, high]
       edit_exists: "aider --model gemini/gemini-3-pro-preview"
 
   - id: gemini-3.1-pro-preview
@@ -133,6 +146,7 @@ agents:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
         model: gemini-3.1-pro-preview
+        effort_levels: [none, minimal, low, medium, high]
       edit_exists: "aider --model gemini/gemini-3.1-pro-preview"
 
   # ============ DeepSeek ============
@@ -202,6 +216,7 @@ agents:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
         model: openai/gpt-oss-120b
+        effort_levels: [none, default, low, medium, high]
       edit_exists: "aider --model groq/openai/gpt-oss-120b"
 
   - id: groq-gpt-oss-20b
@@ -217,6 +232,7 @@ agents:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
         model: openai/gpt-oss-20b
+        effort_levels: [none, default, low, medium, high]
       edit_exists: "aider --model groq/openai/gpt-oss-20b"
 
   - id: groq-llama-3.1-8b-instant
@@ -251,6 +267,7 @@ agents:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
         model: nvidia/nemotron-3-ultra-550b-a55b:free
+        effort_levels: [low, medium, high, xhigh]  # xhigh accepted by OpenRouter passthrough, model-side honoring unverified
       edit_exists: "aider --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
 
   - id: openrouter-nemotron-super-free
@@ -266,6 +283,7 @@ agents:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
         model: nvidia/nemotron-3-super-120b-a12b:free
+        effort_levels: [low, medium, high, xhigh]  # xhigh accepted by OpenRouter passthrough, model-side honoring unverified
       edit_exists: "aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free"
 
   - id: openrouter-gemma-4-31b-free
@@ -296,6 +314,7 @@ agents:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
         model: openai/gpt-oss-20b:free
+        effort_levels: [low, medium, high]
       edit_exists: "aider --model openrouter/openai/gpt-oss-20b:free"
 
   - id: openrouter-north-mini-code-free
@@ -311,6 +330,7 @@ agents:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
         model: cohere/north-mini-code:free
+        effort_levels: [low, medium, high]
       edit_exists: "aider --model openrouter/cohere/north-mini-code:free"
 
   # Cerebras removed in 0.13.0 — every currently-hosted model
@@ -413,7 +433,10 @@ agents:
     auth: "cli:codex"
     usage_url: "https://platform.openai.com/usage"
     transports:
-      edit_exists: "codex exec --skip-git-repo-check"
+      edit_exists:
+        cmd: "codex exec --skip-git-repo-check"
+        effort_levels: [low, medium, high, xhigh]
+        effort_flag: "-c model_reasoning_effort={level}"
 
   - id: codex-gpt-5.4-mini
     provider: openai
@@ -423,7 +446,10 @@ agents:
     auth: "cli:codex"
     usage_url: "https://platform.openai.com/usage"
     transports:
-      edit_exists: "codex exec --skip-git-repo-check -m gpt-5.4-mini"
+      edit_exists:
+        cmd: "codex exec --skip-git-repo-check -m gpt-5.4-mini"
+        effort_levels: [low, medium, high, xhigh]
+        effort_flag: "-c model_reasoning_effort={level}"
 
   # Claude family — subscription-backed. All non-Fable Claude 5 / Opus 4.x
   # models. `claude-opus-4-8` is the newest strong; `claude-haiku-4-5` is
