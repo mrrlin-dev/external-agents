@@ -44,7 +44,6 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force"]);
 const ARRAY_FLAGS = new Set(["file"]);
 const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh", "max"]);
-const EFFORT_UNSUPPORTED_EXIT = 5;
 function parseArgs(argv) {
   const args = [];
   const flags = {};
@@ -72,10 +71,7 @@ function resolveEffort(entry, transport, effort) {
   const config = getTransportConfig(entry, transport);
   const supported = Array.isArray(config?.effort_levels) ? config.effort_levels : [];
   if (supported.includes(effort)) return effort;
-  die(
-    `dispatch: agent '${entry.id}' transport '${transport}' does not support --effort '${effort}' (available: ${supported.length > 0 ? supported.join(", ") : "none"})`,
-    EFFORT_UNSUPPORTED_EXIT,
-  );
+  return undefined;
 }
 
 // --- subcommands --------------------------------------------------
@@ -601,7 +597,8 @@ switch (subcmd) {
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
   dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] "<prompt>"
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
-       (--effort = one of none|minimal|default|low|medium|high|xhigh|max; fails loud if the chosen transport does not declare support; exit code 5)
+       (--effort = reasoning depth. Use \`high\` for planning, design and review;
+        omit it for mechanical edits and lookups — the provider's own default applies.)
        (--cwd = existing dir for an edit_exists agent to run in and edit in place; default = fresh temp dir; ignored by generate_new)
        (--file = attach file contents to prompt; repeatable; path:10-50 for line range; paths relative to --cwd)
   status [--json]
