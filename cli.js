@@ -22,6 +22,7 @@ import { pickAgents } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
+import { writeText } from "./lib/stream-write.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -231,15 +232,15 @@ async function cmdDispatch(args, flags) {
       files: result.files,
     };
     if (escalatedFrom) payload.escalated_from = escalatedFrom;
-    process.stdout.write(JSON.stringify(payload) + "\n");
+    await writeText(process.stdout, JSON.stringify(payload) + "\n");
   } else {
-    process.stdout.write(result.output);
+    await writeText(process.stdout, result.output);
     const trailer = { agent_id: entry.id, outcome, exit_code: result.exitCode, duration_ms: result.durationMs, workdir: result.workdir, files: result.files };
     if (escalatedFrom) trailer.escalated_from = escalatedFrom;
-    console.error("__EXTERNAL_AGENTS_TRAILER__ " + JSON.stringify(trailer));
+    await writeText(process.stderr, "__EXTERNAL_AGENTS_TRAILER__ " + JSON.stringify(trailer) + "\n");
   }
 
-  process.exit(outcome === "success" ? 0 : (outcome === "quota_exhausted" ? 4 : 1));
+  process.exitCode = outcome === "success" ? 0 : (outcome === "quota_exhausted" ? 4 : 1);
 }
 
 // Show a hint line at the bottom of status/UI when the audit hasn't run
