@@ -41,7 +41,7 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 // taking parser turns `dispatch <id> --json "prompt"` into {json:"prompt"} and
 // eats the positional — the prompt vanishes ("missing prompt"). Same latent
 // trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
-const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force"]);
+const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force", "stream"]);
 const ARRAY_FLAGS = new Set(["file"]);
 const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh", "max"]);
 function parseArgs(argv) {
@@ -139,7 +139,7 @@ function cmdPick(flags) {
 async function cmdDispatch(args, flags) {
   const [agentId, ...promptParts] = args;
   const prompt = promptParts.join(" ");
-  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
+  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--stream] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
   if (!prompt) die("dispatch: missing prompt", 2);
 
   // --file path[:lines] — repeatable. "src/foo.ts:10-50" → {path, lines}.
@@ -174,7 +174,16 @@ async function cmdDispatch(args, flags) {
   const resolvedTransport = transport || (getTransportConfig(entry, "generate_new") ? "generate_new" : "edit_exists");
   const effort = resolveEffort(entry, resolvedTransport, flags.effort ? String(flags.effort) : undefined);
   const files = fileEntries.length > 0 ? fileEntries : undefined;
-  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd, files, effort });
+  const progress = !flags.json
+    ? (message, meta = {}) => {
+        if (meta.type === "stream") {
+          if (flags.stream) process.stderr.write(message);
+          return;
+        }
+        process.stderr.write(message.endsWith("\n") ? message : `${message}\n`);
+      }
+    : undefined;
+  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd, files, effort, progress });
   const now = Math.floor(Date.now() / 1000);
 
   // Centralized outcome→state via nextStateAfterOutcome (lib/outcome.js): tracks
