@@ -22,6 +22,7 @@ import { pickAgents } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
+import { writeText } from "./lib/stream-write.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -41,7 +42,7 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 // taking parser turns `dispatch <id> --json "prompt"` into {json:"prompt"} and
 // eats the positional — the prompt vanishes ("missing prompt"). Same latent
 // trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
-const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force"]);
+const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force", "stream"]);
 const ARRAY_FLAGS = new Set(["file"]);
 const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh", "max"]);
 function parseArgs(argv) {
@@ -139,7 +140,7 @@ function cmdPick(flags) {
 async function cmdDispatch(args, flags) {
   const [agentId, ...promptParts] = args;
   const prompt = promptParts.join(" ");
-  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
+  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--stream] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
   if (!prompt) die("dispatch: missing prompt", 2);
 
   // --file path[:lines] — repeatable. "src/foo.ts:10-50" → {path, lines}.
@@ -174,7 +175,16 @@ async function cmdDispatch(args, flags) {
   const resolvedTransport = transport || (getTransportConfig(entry, "generate_new") ? "generate_new" : "edit_exists");
   const effort = resolveEffort(entry, resolvedTransport, flags.effort ? String(flags.effort) : undefined);
   const files = fileEntries.length > 0 ? fileEntries : undefined;
-  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd, files, effort });
+  const progress = !flags.json
+    ? (message, meta = {}) => {
+        if (meta.type === "stream") {
+          if (flags.stream) process.stderr.write(message);
+          return;
+        }
+        process.stderr.write(message.endsWith("\n") ? message : `${message}\n`);
+      }
+    : undefined;
+  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd, files, effort, progress });
   const now = Math.floor(Date.now() / 1000);
 
   // Centralized outcome→state via nextStateAfterOutcome (lib/outcome.js): tracks
@@ -222,15 +232,15 @@ async function cmdDispatch(args, flags) {
       files: result.files,
     };
     if (escalatedFrom) payload.escalated_from = escalatedFrom;
-    process.stdout.write(JSON.stringify(payload) + "\n");
+    await writeText(process.stdout, JSON.stringify(payload) + "\n");
   } else {
-    process.stdout.write(result.output);
+    await writeText(process.stdout, result.output);
     const trailer = { agent_id: entry.id, outcome, exit_code: result.exitCode, duration_ms: result.durationMs, workdir: result.workdir, files: result.files };
     if (escalatedFrom) trailer.escalated_from = escalatedFrom;
-    console.error("__EXTERNAL_AGENTS_TRAILER__ " + JSON.stringify(trailer));
+    await writeText(process.stderr, "__EXTERNAL_AGENTS_TRAILER__ " + JSON.stringify(trailer) + "\n");
   }
 
-  process.exit(outcome === "success" ? 0 : (outcome === "quota_exhausted" ? 4 : 1));
+  process.exitCode = outcome === "success" ? 0 : (outcome === "quota_exhausted" ? 4 : 1);
 }
 
 // Show a hint line at the bottom of status/UI when the audit hasn't run
