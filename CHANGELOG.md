@@ -4,7 +4,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
-## [0.33.2] - 2026-08-03
+## [0.33.3] - 2026-08-03
 
 ### Fixed
 
