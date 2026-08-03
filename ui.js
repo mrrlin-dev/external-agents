@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
-import { readState, writeState, probeInstalled } from "./lib/state.js";
+import { readState, writeState, probeInstalled, deriveDisplayState } from "./lib/state.js";
 import { verifyCredential, getStats, auditCliEntry } from "./lib/dispatch.js";
 import { bootEnv } from "./lib/credentials.js";
 // Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
@@ -54,7 +54,7 @@ const PORT = Number(process.env.EXTERNAL_AGENTS_UI_PORT) || 4711;
 function stateRows() {
   const state = readState();
   return REGISTRY.agents.map((entry) => {
-    if (state[entry.id]) return { ...entry, ...state[entry.id] };
+    if (state[entry.id]) return deriveDisplayState({ ...entry, ...state[entry.id] });
     // No persisted state — this entry has never been probed OR dispatched.
     // Falling back to a static "healthy" (the old behavior) was a false
     // positive: a fresh install with zero credentials rendered everything
@@ -68,7 +68,7 @@ function stateRows() {
     // var is absent (banner picks it up, key input appears), healthy when
     // present (optimistic-but-reasonable, matches pick_agents' own
     // eligibility rule), and not_installed when a CLI binary is missing.
-    return { ...entry, ...probeInstalled(entry) };
+    return deriveDisplayState({ ...entry, ...probeInstalled(entry) });
   });
 }
 function findAgent(id) {
@@ -533,12 +533,15 @@ const PAGE = `<!doctype html>
      distinct from every other (confirmed) state. */
   .pill.unverified { background: var(--panel-2); color: var(--text-2); border: 1px dashed var(--border); }
   .pill.unverified::before { background: var(--text-3); border-radius: 1px; }
+  .pill.need_check { background: var(--warn-2); color: var(--warn); border: 1px dashed color-mix(in srgb, var(--warn) 55%, transparent); }
+  .pill.need_check::before { background: var(--warn); border-radius: 1px; }
 
   tr.healthy         td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
   tr.needs_auth      td:first-child,
   tr.not_installed   td:first-child { box-shadow: inset 2px 0 0 var(--err); }
   tr.quota_exhausted td:first-child,
   tr.rate_limited    td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
+  tr.need_check      td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
   tr.errored_transient td:first-child { box-shadow: inset 2px 0 0 var(--info); }
   tr.model_unavailable td:first-child { box-shadow: inset 2px 0 0 var(--text-3); }
   tr.model_unavailable td:not(:first-child) { opacity: 0.55; }
@@ -767,7 +770,7 @@ function fmtUsd(v) {
 let sortKey = localStorage.getItem("sort_key") || "state";
 let sortDir = localStorage.getItem("sort_dir") || "asc";
 const SORT_ORDER = {
-  state: ["healthy", "unverified", "quota_exhausted", "rate_limited", "needs_auth", "not_installed", "errored_transient", "model_unavailable"],
+  state: ["healthy", "unverified", "need_check", "quota_exhausted", "rate_limited", "needs_auth", "not_installed", "errored_transient", "model_unavailable"],
   tier:  ["strong", "weak"],
 };
 function sortAgents(agents, statsByAgent) {
@@ -897,6 +900,9 @@ function renderRows(agents, statsByAgent) {
         '<span class="pill ' + (a.state || "healthy") + '"' +
           (a.note ? ' title="' + esc(a.note) + '"' : '') +
         '>' + (a.state || "healthy") + '</span>' +
+        (a.state === "need_check"
+          ? '<span class="last-err">cooldown elapsed; run probe</span>'
+          : '') +
         ((a.state === "quota_exhausted" || a.state === "rate_limited") && a.cooldown_until
           // source "error_body" = an actual reset time was parsed from the
           // provider's response (Retry-After header, "Resets in Xh" text).
