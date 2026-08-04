@@ -49,7 +49,7 @@ Requires Node ≥ 20. Works on macOS and Linux; Windows via WSL.
 
 ## What you get
 
-- **`dispatch(agent_id, prompt)`** — an MCP tool your primary agent calls. Auto-picks a healthy provider, retries on a different one if the first is rate-limited, honors the provider's own reset time (not a made-up 1h default). Pass `cwd` (an existing directory, e.g. a git worktree) to have an `edit_exists` agent run in it and edit files in place; omit it to run in a fresh isolated temp dir. When `cwd` is a git repo, the returned `files` list is the git-changed set, not the whole tree.
+- **`dispatch(agent_id, prompt)`** — an MCP tool your primary agent calls. Auto-picks a healthy provider, retries on a different one if the first is rate-limited, honors the provider's own reset time (not a made-up 1h default). Supplying `cwd` (an existing directory, e.g. a git worktree) makes `edit_exists` the default when the agent supports it, so a direct CLI can inspect and edit files in place. `cwd` does not give `generate_new` filesystem access: attach `files` for its repository context. Without `cwd`, `generate_new` remains the default when available. When `cwd` is a git repo, the returned `files` list is the git-changed set, not the whole tree.
 - **`pick_agents(n, min_distinct_providers)`** — the primitive for multi-model panels. Fan out 2-4 distinct-provider votes in parallel for jury-style review, self-consistency checks, or your own consensus loop.
 - **Reasoning effort is transport-scoped and explicit** — use `--effort <level>` when the quality of the reasoning matters; see [docs/effort.md](docs/effort.md) for supported levels, tradeoffs, and provider-specific delivery.
 - **Local dashboard** — `external-agents init` opens a loopback page where you paste keys inline, see live provider state, and check usage. Loopback only, never over the network, keys stored at `~/.local/state/external-agents/keys.env` (mode 0600).
@@ -173,7 +173,7 @@ No. `external-agents` is standalone. Mrrlin uses it internally, but the package 
 <details>
 <summary><b>What about adding a new provider?</b></summary>
 
-~15-line YAML addition — see [docs/adding-a-provider.md](docs/adding-a-provider.md). aider (used for `edit_exists` transport) supports 100+ providers via LiteLLM.
+~15-line YAML addition — see [docs/adding-a-provider.md](docs/adding-a-provider.md). Register a direct agent CLI for `edit_exists`, or a native endpoint for `generate_new`.
 
 </details>
 
