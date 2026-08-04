@@ -43,6 +43,22 @@
 # Keep disabled paid entries narrow and justified: bundle them only when they
 # reuse an already-bundled auth surface and act as a low-friction upgrade path.
 # Env overrides live under `env:` (values may be "@file:~/path" refs).
+#
+# `usage_url` (existing) — where an operator checks live spend/quota for the
+# credential this entry uses.
+# `signup_url` (optional) — where an operator obtains this credential (an API
+# key page, or the provider's account signup for a `cli:`-authenticated tool).
+# `docs_url` (optional) — the provider's own API/CLI documentation.
+# `free_tier` (optional) — plain-language description of what free usage this
+# provider actually offers, so a consuming UI can explain it rather than just
+# tag it `free`:
+#   description    — a sentence or two, not a slogan.
+#   limits          — the real caps, in words (exact numbers drift; don't pin
+#                     a number here that will go stale).
+#   card_required   — whether starting the free tier needs a payment method.
+# All three are UI-facing catalog content, not auth or dispatch behavior — an
+# entry with none of them still dispatches normally; a consumer falls back to
+# "not documented yet" rather than treating their absence as an error.
 schema_version: 1
 agents:
 
@@ -56,6 +72,12 @@ agents:
     auth: "env:GEMINI_API_KEY"
     preference_order: 5
     usage_url: "https://aistudio.google.com/usage"
+    signup_url: "https://aistudio.google.com/apikey"
+    docs_url: "https://ai.google.dev/gemini-api/docs"
+    free_tier:
+      description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -73,6 +95,12 @@ agents:
     auth: "env:GEMINI_API_KEY"
     preference_order: 5
     usage_url: "https://aistudio.google.com/usage"
+    signup_url: "https://aistudio.google.com/apikey"
+    docs_url: "https://ai.google.dev/gemini-api/docs"
+    free_tier:
+      description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -90,6 +118,12 @@ agents:
     auth: "env:GEMINI_API_KEY"
     preference_order: 10
     usage_url: "https://aistudio.google.com/usage"
+    signup_url: "https://aistudio.google.com/apikey"
+    docs_url: "https://ai.google.dev/gemini-api/docs"
+    free_tier:
+      description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -107,6 +141,12 @@ agents:
     auth: "env:GEMINI_API_KEY"
     preference_order: 10
     usage_url: "https://aistudio.google.com/usage"
+    signup_url: "https://aistudio.google.com/apikey"
+    docs_url: "https://ai.google.dev/gemini-api/docs"
+    free_tier:
+      description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -124,6 +164,12 @@ agents:
     auth: "env:GEMINI_API_KEY"
     preference_order: 10
     usage_url: "https://aistudio.google.com/usage"
+    signup_url: "https://aistudio.google.com/apikey"
+    docs_url: "https://ai.google.dev/gemini-api/docs"
+    free_tier:
+      description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -144,6 +190,12 @@ agents:
     enabled: false
     auth: "env:GEMINI_API_KEY"
     usage_url: "https://aistudio.google.com/usage"
+    signup_url: "https://aistudio.google.com/apikey"
+    docs_url: "https://ai.google.dev/gemini-api/docs"
+    free_tier:
+      description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -161,6 +213,12 @@ agents:
     enabled: false
     auth: "env:GEMINI_API_KEY"
     usage_url: "https://aistudio.google.com/usage"
+    signup_url: "https://aistudio.google.com/apikey"
+    docs_url: "https://ai.google.dev/gemini-api/docs"
+    free_tier:
+      description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -179,6 +237,12 @@ agents:
     auth: "env:DEEPSEEK_API_KEY"
     preference_order: 10
     usage_url: "https://platform.deepseek.com/usage"
+    signup_url: "https://platform.deepseek.com/api_keys"
+    docs_url: "https://api-docs.deepseek.com/"
+    free_tier:
+      description: "DeepSeek's API is prepaid rather than free — a small balance top-up is required before a key can dispatch a request."
+      limits: "No free quota; usage is billed per token against the account balance."
+      card_required: true
     transports:
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
@@ -195,6 +259,12 @@ agents:
     tags: [quick, reasoning, cheap]
     auth: "env:DEEPSEEK_API_KEY"
     usage_url: "https://platform.deepseek.com/usage"
+    signup_url: "https://platform.deepseek.com/api_keys"
+    docs_url: "https://api-docs.deepseek.com/"
+    free_tier:
+      description: "DeepSeek's API is prepaid rather than free — a small balance top-up is required before a key can dispatch a request."
+      limits: "No free quota; usage is billed per token against the account balance."
+      card_required: true
     transports:
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
@@ -219,6 +289,12 @@ agents:
     auth: "env:GROQ_API_KEY"
     preference_order: 8
     usage_url: "https://console.groq.com/settings/usage"
+    signup_url: "https://console.groq.com/keys"
+    docs_url: "https://console.groq.com/docs"
+    free_tier:
+      description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
@@ -232,6 +308,12 @@ agents:
     tags: [quick, reasoning, free]
     auth: "env:GROQ_API_KEY"
     usage_url: "https://console.groq.com/settings/usage"
+    signup_url: "https://console.groq.com/keys"
+    docs_url: "https://console.groq.com/docs"
+    free_tier:
+      description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
@@ -248,6 +330,12 @@ agents:
     tags: [quick, fast, free]
     auth: "env:GROQ_API_KEY"
     usage_url: "https://console.groq.com/settings/usage"
+    signup_url: "https://console.groq.com/keys"
+    docs_url: "https://console.groq.com/docs"
+    free_tier:
+      description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
@@ -264,6 +352,12 @@ agents:
     tags: [quick, fast, free]
     auth: "env:GROQ_API_KEY"
     usage_url: "https://console.groq.com/settings/usage"
+    signup_url: "https://console.groq.com/keys"
+    docs_url: "https://console.groq.com/docs"
+    free_tier:
+      description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
+      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
+      card_required: false
     transports:
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
@@ -281,6 +375,12 @@ agents:
     tags: [reasoning, free]
     auth: "env:OPENROUTER_API_KEY"
     usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
     transports:
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
@@ -297,6 +397,12 @@ agents:
     tags: [reasoning, free]
     auth: "env:OPENROUTER_API_KEY"
     usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
     transports:
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
@@ -313,6 +419,12 @@ agents:
     tags: [quick, free]
     auth: "env:OPENROUTER_API_KEY"
     usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
     transports:
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
@@ -333,6 +445,12 @@ agents:
     tags: [quick, fast, free]
     auth: "env:OPENROUTER_API_KEY"
     usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
     transports:
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
@@ -349,6 +467,12 @@ agents:
     tags: [coding, free]
     auth: "env:OPENROUTER_API_KEY"
     usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
     transports:
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
@@ -374,6 +498,12 @@ agents:
     auth: "cli:ollama"
     preference_order: 20
     usage_url: "https://ollama.com/settings/keys"
+    signup_url: "https://ollama.com/settings/keys"
+    docs_url: "https://docs.ollama.com/cloud"
+    free_tier:
+      description: "Ollama's hosted cloud models include a free usage allowance for signed-in accounts, no credit card required to start."
+      limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
+      card_required: false
     transports:
       generate_new:
         url: "http://localhost:11434/v1/chat/completions"
@@ -390,6 +520,12 @@ agents:
     tags: [quick, free]
     auth: "cli:ollama"
     usage_url: "https://ollama.com/settings/keys"
+    signup_url: "https://ollama.com/settings/keys"
+    docs_url: "https://docs.ollama.com/cloud"
+    free_tier:
+      description: "Ollama's hosted cloud models include a free usage allowance for signed-in accounts, no credit card required to start."
+      limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
+      card_required: false
     transports:
       generate_new:
         url: "http://localhost:11434/v1/chat/completions"
@@ -405,6 +541,12 @@ agents:
     tier: strong
     tags: [agentic]
     auth: "cli:cursor-agent"
+    signup_url: "https://cursor.com"
+    docs_url: "https://docs.cursor.com/en/cli/overview"
+    free_tier:
+      description: "Cursor CLI authenticates with a Cursor account. The free Hobby plan includes a limited monthly usage allowance; Pro removes most caps."
+      limits: "Hobby-plan usage is capped per month and resets on the billing cycle."
+      card_required: false
     transports:
       edit_exists: "cursor-agent -p --output-format text --trust"
 
@@ -414,6 +556,12 @@ agents:
     tier: weak
     tags: [agentic]
     auth: "cli:opencode"
+    signup_url: "https://opencode.ai"
+    docs_url: "https://opencode.ai/docs"
+    free_tier:
+      description: "opencode is a free, open-source CLI. Its hosted model routing needs an opencode account and is free up to a limited allowance before you connect your own provider keys or a paid plan."
+      limits: "Hosted routing without your own provider keys is capped; connecting your own API keys removes the cap."
+      card_required: false
     transports:
       edit_exists: "opencode -p"
 
@@ -427,6 +575,12 @@ agents:
     tier: strong
     tags: [agentic]
     auth: "cli:kiro-cli"
+    signup_url: "https://kiro.dev"
+    docs_url: "https://kiro.dev/docs"
+    free_tier:
+      description: "Kiro CLI authenticates with a Kiro account. The free tier includes a limited monthly credit allowance; paid plans raise it."
+      limits: "Free-tier credits are capped per month and reset on the billing cycle."
+      card_required: false
     transports:
       edit_exists:
         cmd: "kiro-cli chat --no-interactive --trust-tools=fs_read"
@@ -464,6 +618,12 @@ agents:
     tags: []
     auth: "cli:codex"
     usage_url: "https://platform.openai.com/usage"
+    signup_url: "https://chatgpt.com/codex"
+    docs_url: "https://developers.openai.com/codex/cli"
+    free_tier:
+      description: "Codex CLI authenticates with a ChatGPT account rather than a metered API key. Plus, Pro, Team and Enterprise plans include Codex usage; there is no unauthenticated free tier."
+      limits: "Usage limits follow the linked ChatGPT plan's Codex allowance."
+      card_required: true
     transports:
       edit_exists:
         cmd: "codex exec --skip-git-repo-check"
@@ -479,6 +639,12 @@ agents:
     tags: [quick]
     auth: "cli:codex"
     usage_url: "https://platform.openai.com/usage"
+    signup_url: "https://chatgpt.com/codex"
+    docs_url: "https://developers.openai.com/codex/cli"
+    free_tier:
+      description: "Codex CLI authenticates with a ChatGPT account rather than a metered API key. Plus, Pro, Team and Enterprise plans include Codex usage; there is no unauthenticated free tier."
+      limits: "Usage limits follow the linked ChatGPT plan's Codex allowance."
+      card_required: true
     transports:
       edit_exists:
         cmd: "codex exec --skip-git-repo-check -m gpt-5.4-mini"
@@ -498,6 +664,12 @@ agents:
     tags: []
     auth: "cli:claude"
     usage_url: "https://console.anthropic.com/settings/usage"
+    signup_url: "https://claude.ai"
+    docs_url: "https://docs.claude.com/en/docs/claude-code"
+    free_tier:
+      description: "Claude Code authenticates with a claude.ai account rather than a metered API key. The free plan includes a limited Claude Code allowance; Pro and Max raise it."
+      limits: "Usage limits follow the linked claude.ai plan's Claude Code allowance, which resets on a rolling window."
+      card_required: false
     transports:
       edit_exists:
         cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-8"
@@ -519,6 +691,12 @@ agents:
     auth: "cli:claude"
     preference_order: 20
     usage_url: "https://console.anthropic.com/settings/usage"
+    signup_url: "https://claude.ai"
+    docs_url: "https://docs.claude.com/en/docs/claude-code"
+    free_tier:
+      description: "Claude Code authenticates with a claude.ai account rather than a metered API key. The free plan includes a limited Claude Code allowance; Pro and Max raise it."
+      limits: "Usage limits follow the linked claude.ai plan's Claude Code allowance, which resets on a rolling window."
+      card_required: false
     transports:
       edit_exists:
         cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-sonnet-5"
@@ -535,6 +713,12 @@ agents:
     auth: "cli:claude"
     preference_order: 22
     usage_url: "https://console.anthropic.com/settings/usage"
+    signup_url: "https://claude.ai"
+    docs_url: "https://docs.claude.com/en/docs/claude-code"
+    free_tier:
+      description: "Claude Code authenticates with a claude.ai account rather than a metered API key. The free plan includes a limited Claude Code allowance; Pro and Max raise it."
+      limits: "Usage limits follow the linked claude.ai plan's Claude Code allowance, which resets on a rolling window."
+      card_required: false
     transports:
       edit_exists:
         cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-haiku-4-5-20251001"
