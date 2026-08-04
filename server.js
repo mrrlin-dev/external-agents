@@ -126,8 +126,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "dispatch",
         description:
-          "Run a specific agent by id with a prompt. transport ('generate' | 'cli') overrides the " +
-          "default (generate preferred when entry declares it). escalate_to_pro=true uses the " +
+          "Run a specific agent by id with a prompt. transport ('generate_new' | 'edit_exists') overrides the " +
+          "default. With cwd, edit_exists is preferred when declared; otherwise generate_new is preferred. escalate_to_pro=true uses the " +
           "same-provider strong-tier entry instead. " +
           "\n\nROUTING NOTE: for the same task, weak-tier free-tier models (Gemini flash, Groq " +
           "llama, DeepSeek, OpenRouter :free) are usually correct AND fast enough. Use dispatch " +
@@ -137,15 +137,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "(fix the spec, re-dispatch weak) before escalating tier — reaching for stronger models " +
           "hides prompt-engineering failures behind expensive compute." +
           "\n\ncwd: absolute path of an existing directory (e.g. a git worktree) for an " +
-          "edit_exists agent to run IN and edit files in place. Omit to run in a fresh isolated " +
-          "temp dir (the default). Applies only to edit_exists (CLI) transports; ignored by " +
-          "generate_new (HTTP) agents. When cwd is a git repo, the returned `files` list is the " +
+          "edit_exists agent to run IN and edit files in place. When an agent declares edit_exists, " +
+          "supplying cwd selects it by default. generate_new (HTTP) ignores cwd and has no filesystem " +
+          "access. When cwd is a git repo, the returned `files` list is the " +
           "git-changed set, not the whole tree." +
           "\n\nfiles: array of {path, lines?, label?} entries. Their contents are read from disk " +
           "and prepended to the prompt as a structured context block. CRITICAL for generate_new " +
           "agents (they have ZERO filesystem access — without files they hallucinate code shapes). " +
-          "Strongly recommended for edit_exists too (scopes the agent to the right files instead " +
-          "of relying on aider/codex file-discovery heuristics). Paths resolve relative to cwd. " +
+          "Optional for edit_exists: direct CLIs can inspect cwd themselves; attach files only when " +
+          "you need to constrain or highlight context. Paths resolve relative to cwd. " +
           "IMPORTANT: when using files, ALWAYS pass cwd (the repo root) — it serves as the " +
           "containment basedir for path resolution and security. Without cwd, paths resolve against " +
           "the MCP server process cwd, which is likely wrong.",
@@ -163,8 +163,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 "Attach file contents to the prompt so the agent sees real code, not hallucinated shapes. " +
                 "Each entry: { path: 'relative/or/absolute', lines?: '10-50', label?: 'short name' }. " +
                 "Paths resolve relative to cwd (or process cwd). The contents are prepended to the prompt " +
-                "as a structured context block. Essential for generate_new agents (no filesystem access) " +
-                "and strongly recommended for edit_exists (scopes the agent to the right files).",
+                "as a structured context block. Essential for generate_new agents (no filesystem access); " +
+                "optional for edit_exists because direct CLIs can read cwd.",
               items: {
                 type: "object",
                 properties: {

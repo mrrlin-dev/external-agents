@@ -19,9 +19,9 @@
 #     honors it; high effort there is a request, not a guarantee. `documented`
 #     means the parameter and enum are read from official docs. Gemini and Groq
 #     cap at `high`; Ollama's top level is `max`.
-#   transports.edit_exists   — spawns aider (or another agentic CLI). Used when
-#     the caller explicitly requests transport="edit_exists" (iterative edits,
-#     multi-file, tool use — aider's core strength).
+#   transports.edit_exists   — spawns a direct agent CLI in the caller's cwd.
+#     This is the recommended path for iterative edits, multi-file work, and
+#     tool use. The bundled registry intentionally uses direct CLIs here.
 #     May stay a legacy bare string command, or be a map with:
 #       cmd: "codex exec ..."
 #       effort_levels: [low, medium, high, xhigh]
@@ -31,6 +31,8 @@
 #     If `effort_levels` is absent, effort is unsupported for that transport.
 #     `xhigh` currently exists only on Codex CLI.
 # When both are present, `runAny` picks `generate_new` unless overridden.
+# Request `edit_exists` for an in-place edit; direct CLIs can inspect the cwd,
+# so attached files are optional on that transport.
 #
 # Auth surfaces (2, merged from previous 3):
 #   env:VAR   — external-agents reads the value from process.env.VAR
@@ -62,13 +64,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, minimal, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3.5-flash-lite"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   - id: gemini-3.1-flash-lite
     provider: google
     model: gemini-3.1-flash-lite
@@ -86,13 +81,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, minimal, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3.1-flash-lite"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   - id: gemini-3.6-flash
     provider: google
     model: gemini-3.6-flash
@@ -110,13 +98,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, minimal, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3.6-flash"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   - id: gemini-3.5-flash
     provider: google
     model: gemini-3.5-flash
@@ -134,13 +115,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, minimal, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3.5-flash"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   - id: gemini-3-flash-preview
     provider: google
     model: gemini-3-flash-preview
@@ -158,13 +132,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, minimal, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3-flash-preview"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   # Google removed Gemini Pro from the free tier (limit: 0). These paid
   # upgrades reuse the same GEMINI_API_KEY auth surface, so they stay bundled
   # but excluded from default picks via `paid` tag + `enabled: false`.
@@ -185,13 +152,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, minimal, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3-pro-preview"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   - id: gemini-3.1-pro-preview
     provider: google
     model: gemini-3.1-pro-preview
@@ -209,13 +169,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, minimal, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3.1-pro-preview"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   # ============ DeepSeek ============
   - id: deepseek-chat
     provider: deepseek
@@ -234,13 +187,6 @@ agents:
         effort_param: top_level
         effort_levels: [high, max]
         effort_verified: documented
-      edit_exists:
-        cmd: "aider --model deepseek/deepseek-v4-flash"
-        effort_param: flag
-        effort_levels: [high, max]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: documented
-
   - id: deepseek-reasoner
     provider: deepseek
     model: deepseek-v4-pro
@@ -257,13 +203,6 @@ agents:
         effort_param: top_level
         effort_levels: [high, max]
         effort_verified: documented
-      edit_exists:
-        cmd: "aider --model deepseek/deepseek-v4-pro"
-        effort_param: flag
-        effort_levels: [high, max]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: documented
-
   # Z.ai (GLM) removed — glm-4.7 (formerly glm-4.7-flash) now requires a
   # paid Z.ai plan or resource package, mirroring the Cerebras situation
   # (0.13.0). This requires a new paid provider relationship rather than a
@@ -285,8 +224,6 @@ agents:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
         model: llama-3.3-70b-versatile
-      edit_exists: "aider --model groq/llama-3.3-70b-versatile"
-
   - id: groq-gpt-oss-120b
     provider: groq
     model: openai/gpt-oss-120b
@@ -303,13 +240,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, default, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model groq/openai/gpt-oss-120b"
-        effort_param: flag
-        effort_levels: [none, default, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   - id: groq-gpt-oss-20b
     provider: groq
     model: openai/gpt-oss-20b
@@ -326,13 +256,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, default, low, medium, high]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model groq/openai/gpt-oss-20b"
-        effort_param: flag
-        effort_levels: [none, default, low, medium, high]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   - id: groq-llama-3.1-8b-instant
     provider: groq
     model: llama-3.1-8b-instant
@@ -346,8 +269,6 @@ agents:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
         model: llama-3.1-8b-instant
-      edit_exists: "aider --model groq/llama-3.1-8b-instant"
-
   # ============ OpenRouter — 50+ free models with :free tag ============
   # NB: OpenRouter rotates its :free catalog often — models come and go.
   # If any entry here 404s, run `external-agents audit --provider openrouter`
@@ -368,13 +289,6 @@ agents:
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
-      edit_exists:
-        cmd: "aider --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high, xhigh, max]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: passthrough
-
   - id: openrouter-nemotron-super-free
     provider: openrouter
     model: nvidia/nemotron-3-super-120b-a12b:free
@@ -391,13 +305,6 @@ agents:
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
-      edit_exists:
-        cmd: "aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high, xhigh, max]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: passthrough
-
   - id: openrouter-gemma-4-31b-free
     provider: openrouter
     model: google/gemma-4-31b-it:free
@@ -418,8 +325,6 @@ agents:
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
-      edit_exists: "aider --model openrouter/google/gemma-4-31b-it:free"
-
   - id: openrouter-gpt-oss-20b-free
     provider: openrouter
     model: openai/gpt-oss-20b:free
@@ -436,13 +341,6 @@ agents:
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
-      edit_exists:
-        cmd: "aider --model openrouter/openai/gpt-oss-20b:free"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high, xhigh, max]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: passthrough
-
   - id: openrouter-north-mini-code-free
     provider: openrouter
     model: cohere/north-mini-code:free
@@ -459,13 +357,6 @@ agents:
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
-      edit_exists:
-        cmd: "aider --model openrouter/cohere/north-mini-code:free"
-        effort_param: flag
-        effort_levels: [none, minimal, low, medium, high, xhigh, max]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: passthrough
-
   # Cerebras removed in 0.13.0 — every currently-hosted model
   # (gpt-oss-120b, zai-glm-4.7, gemma-4-31b) returned HTTP 402 "Payment
   # required" against a standard account. No usable free tier remains, and
@@ -491,13 +382,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, low, medium, high, max]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model ollama/gpt-oss:20b-cloud"
-        effort_param: flag
-        effort_levels: [none, low, medium, high, max]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   - id: ollama-gpt-oss-120b
     provider: ollama-cloud
     model: gpt-oss:120b-cloud
@@ -514,13 +398,6 @@ agents:
         effort_param: top_level
         effort_levels: [none, low, medium, high, max]
         effort_verified: validated
-      edit_exists:
-        cmd: "aider --model ollama/gpt-oss:120b-cloud"
-        effort_param: flag
-        effort_levels: [none, low, medium, high, max]
-        effort_flag: "--reasoning-effort {level} --no-check-model-accepts-settings"
-        effort_verified: validated
-
   # ============ Direct-CLI agentic reviewers (no OpenAI-compat, cli-only) ============
   - id: cursor-agent
     provider: cursor

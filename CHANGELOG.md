@@ -4,6 +4,27 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.33.5] - 2026-08-04
+
+### Fixed
+
+- Attached files outside the requested `cwd` now fail the dispatch clearly instead of being silently omitted from model context.
+- A successful HTTP response with empty completion content is now reported as an error rather than a misleading successful dispatch.
+- HTTP dispatch timeouts remain active until the full response body is read, preventing providers that send headers but stall the body from hanging indefinitely.
+- Timed-out direct CLI dispatches terminate their whole process group, preventing descendant processes from surviving the timeout.
+
+## [0.33.4] - 2026-08-04
+
+### Changed
+
+- When `cwd` is supplied, dispatch now prefers an available direct-CLI `edit_exists` transport. Without `cwd`, `generate_new` remains the default when available; explicit transport selection still overrides both.
+- Clarified that `cwd` does not give `generate_new` filesystem access: use `files` to attach repository context.
+- Removed aider-backed `edit_exists` declarations from bundled HTTP-only entries; callers that explicitly selected that transport must choose a bundled direct-CLI agent instead. Custom `aider` commands now fail with a migration error; replace them with the direct CLI for the chosen agent.
+
+### Fixed
+
+- Direct CLI output is normalized before it is returned or classified, so terminal ANSI sequences do not interfere with auth and quota diagnostics.
+
 ## [0.33.3] - 2026-08-03
 
 ### Fixed

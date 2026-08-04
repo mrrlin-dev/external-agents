@@ -6,35 +6,29 @@ This guide walks you through registering a new LLM provider or model in the `age
 
 Before starting, ensure your local environment is set up for the transport you plan to use:
 
-- **For the `aider` transport**: This transport runs iterative, multi-file agentic loops. It requires the `aider` CLI to be globally available. Install it using `uv`:
-  ```bash
-  uv tool install aider-chat
-  ```
-- **For the `generate` transport**: No external dependencies are needed. This transport runs direct, lightweight HTTPS requests to any OpenAI-compatible completions endpoint.
+- **For `edit_exists`**: Install and authenticate the direct agent CLI you want to use (for example, Codex or Claude). The CLI runs in the supplied `cwd`, so it can inspect, edit, and test the project itself.
+- **For `generate_new`**: No external CLI is needed. This transport runs a direct, lightweight HTTPS request to an OpenAI-compatible completions endpoint.
 
 ## Step 1: Find the provider's endpoint / prefix
 
 To configure the model, you need to identify its identifier and connection strings depending on the target transport:
 
-- **For `aider`**: Aider utilizes LiteLLM under the hood. Locate your provider's prefix format in the [Aider LLM Documentation](https://aider.chat/docs/llms.html). For example, Groq models use the prefix `groq/`, while OpenRouter uses `openrouter/`.
-- **For `generate`**: Locate the provider's OpenAI-compatible base URL in their developer docs. For example, DeepSeek uses `https://api.deepseek.com/v1/chat/completions`. Note down the exact model ID (e.g., `deepseek-chat`).
+- **For `edit_exists`**: Verify the CLI's non-interactive command and authentication flow. The command must accept the task prompt as its final positional argument.
+- **For `generate_new`**: Locate the provider's OpenAI-compatible base URL in their developer docs. For example, DeepSeek uses `https://api.deepseek.com/v1/chat/completions`. Note down the exact model ID (e.g., `deepseek-chat`).
 
 ## Step 2: Add a registry entry to agents.yaml
 
 Open your `agents.yaml` configuration file and append your new agent entry.
 
 ```yaml
-- id: aider-groq-llama-3.3-70b
-  provider: groq
-  model: llama-3.3-70b-versatile
-  quota_scope: shared
-  tier: weak
-  tags: [quick, fast, free]
-  auth: "env:GROQ_API_KEY"
-  preference_order: 8
-  usage_url: "https://console.groq.com/settings/usage"
+- id: example-direct-cli
+  provider: example
+  model: default
+  tier: strong
+  tags: [agentic]
+  auth: "cli:example-agent"
   transports:
-    cli: "aider --model groq/llama-3.3-70b-versatile"
+    edit_exists: "example-agent --print"
 
 - id: gen-deepseek-chat
   provider: deepseek
@@ -45,7 +39,7 @@ Open your `agents.yaml` configuration file and append your new agent entry.
   auth: "env:DEEPSEEK_API_KEY"
   preference_order: 9
   transports:
-    generate:
+    generate_new:
       url: "https://api.deepseek.com/v1/chat/completions"
       env: DEEPSEEK_API_KEY
       model: deepseek-chat
@@ -53,7 +47,7 @@ Open your `agents.yaml` configuration file and append your new agent entry.
 
 ### Registry Fields Definition
 
-- **`id`**: Unique identifier for this specific provider-model-transport configuration.
+- **`id`**: Unique identifier for this specific provider-model configuration.
 - **`provider`**: The lowercase name of the hosting provider.
 - **`model`**: The target model ID expected by the provider.
 - **`quota_scope`**: Set to `shared` if the rate limits are shared across all models on that provider account, or `individual` if the model has its own dedicated limit bucket.
@@ -65,9 +59,9 @@ Open your `agents.yaml` configuration file and append your new agent entry.
     OPENAI_API_KEY: "@file:~/.claude/state/zai.key"
   ```
 - **`preference_order`**: Integer representing the fallback priority. Higher numbers are tried first.
-- **`transports`**: 
-  - `cli`: Command string to launch the agentic loop via aider.
-  - `generate`: Mapping configuring direct HTTPS requests to an OpenAI-compatible endpoint.
+- **`transports`**:
+  - `edit_exists`: Command string (or `{ cmd: ... }` map) for a direct agent CLI.
+  - `generate_new`: Mapping configuring direct HTTPS requests to an OpenAI-compatible endpoint.
 
 ## Step 3: Set the env var
 
@@ -83,7 +77,7 @@ export DEEPSEEK_API_KEY="sk-d33ps33kKey..."
 Validate that your new registry entry is parsed correctly and that the external-agents daemon can communicate with the provider's endpoint.
 
 ```bash
-external-agents probe aider-groq-llama-3.3-70b
+external-agents probe example-direct-cli
 ```
 
 If successful, the console will print a confirmation showing `state:healthy` alongside latency statistics.
@@ -131,21 +125,24 @@ Rules:
 
 ## Choosing between transports
 
-| Feature | `aider` | `generate` |
+| Feature | `edit_exists` (direct CLI) | `generate_new` |
 | :--- | :--- | :--- |
-| **Iteration** | Excellent (interactive, git-aware loops) | Limited (single shot) |
+| **Iteration** | Excellent (agent can inspect and test `cwd`) | Limited (single shot) |
 | **New-file creation** | Good | Excellent (clean write, low latency) |
-| **Multi-file edits** | Supported out-of-the-box | Manual processing required |
-| **Tool use** | Native via agent command line | No tool calling (pure text) |
+| **Multi-file edits** | Native | Manual processing required |
+| **Tool use** | Native to the CLI | No tool calling (pure text) |
 
-Choose `aider` when you want an agent to interactively edit codebases, run tests, and fix bugs. Choose `generate` for fast, zero-dependency generation jobs where you simply need text or a single file generated from scratch without overhead.
+Use `edit_exists` with a direct CLI for codebase edits, tests, and iterative work. Use `generate_new` for fast, single-shot text generation. Attach `files` for `generate_new`, which has no filesystem access; they are optional for `edit_exists` when a `cwd` is supplied.
+
+The bundled API-provider entries are intentionally generation-only. For an edit, select a bundled direct-CLI entry such as `codex` or `claude-opus-4-8`, or filter `pick_agents` by `transport: "edit_exists"`.
 
 ## Common gotchas
 
-- **Model ID Prefixing**: When using `aider` (via LiteLLM), you often need prefixes like `groq/llama-3.3-70b-versatile` in the `cli` execution string. However, for the `generate` transport, you must use the raw model name expected by the OpenAI-compatible endpoint (e.g., `llama-3.3-70b-versatile`) in the `model` parameter, otherwise the API will return a 404.
+- **CLI invocation**: `edit_exists` passes the task prompt as the command's final positional argument. Verify this contract for a custom CLI before registering it.
+- **Model ID Prefixing**: For `generate_new`, use the raw model name expected by the OpenAI-compatible endpoint (e.g., `llama-3.3-70b-versatile`), otherwise the API may return a 404.
 - **Quota Scopes**: Setting `quota_scope: shared` tells the router to avoid hammering other models under the same provider if one model returns a `429 Too Many Requests` error. Make sure to set this correctly for providers like Groq or Anthropic where your tier's limits apply across the entire account.
 - **Pricing Fields**: Pricing structures (`input_cost_per_m`, `output_cost_per_m`) are deferred to the v1-deferred schema implementation. Do not manually add price fields to your `agents.yaml` entry; they are fetched dynamically.
-- **Aider's SEARCH/REPLACE limits**: The `aider` transport relies heavily on search-and-replace blocks. If you are generating a brand-new file from scratch, aider may occasionally fail if there is no pre-existing code to target. Use the `generate` transport to bootstrap empty files, then hand them off to `aider` for iterative edits.
+- **Attached files**: The containment and size limits on `files` protect `generate_new` from reading outside its supplied `cwd`. Do not rely on them to grant a direct CLI filesystem access; pass `cwd` for that.
 
 ## When it's more than one entry
 

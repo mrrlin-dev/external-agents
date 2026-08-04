@@ -55,7 +55,7 @@ See [adding-a-provider.md](./adding-a-provider.md) for the registry details.
 - Nested `reasoning: { effort }` request body field: OpenRouter.
 - `--effort <level>` CLI flag: Claude CLI, Kiro.
 - `-c model_reasoning_effort=<level>` CLI flag: Codex.
-- `--reasoning-effort <level>` plus `--no-check-model-accepts-settings`: aider over HTTP models on `edit_exists`.
+- The direct CLI's native flag, recorded in `effort_flag`, for `edit_exists`.
 
 ## Examples
 

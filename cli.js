@@ -17,7 +17,7 @@
 import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
-import { runAny, resolveEscalation, parseExhaustionSignal, getStats, verifyCredential, auditCliEntry, getTransportConfig } from "./lib/dispatch.js";
+import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
@@ -172,7 +172,7 @@ async function cmdDispatch(args, flags) {
   writeState({ [entry.id]: { ...(cur[entry.id] || {}), last_used_at: Math.floor(Date.now() / 1000) } });
 
   const transport = flags.transport;  // "generate_new" | "edit_exists" | undefined
-  const resolvedTransport = transport || (getTransportConfig(entry, "generate_new") ? "generate_new" : "edit_exists");
+  const resolvedTransport = selectTransport(entry, { transport, cwd: flags.cwd });
   const effort = resolveEffort(entry, resolvedTransport, flags.effort ? String(flags.effort) : undefined);
   const files = fileEntries.length > 0 ? fileEntries : undefined;
   const progress = !flags.json
@@ -195,6 +195,7 @@ async function cmdDispatch(args, flags) {
   // so the two dispatch surfaces never drift.
   const ok = result.exitCode === 0;
   const failText = result.stderr + "\n" + result.output;
+  const cliFailure = ok ? { needsAuth: false, quotaExhausted: false } : classifyCliFailure(failText);
   const sig = ok ? { detected: false } : parseExhaustionSignal(failText);
   // Resolve the REAL reset (period-aware, provider-aware) from the failing output — e.g. a CLI
   // "Monthly request limit reached" resolves to +7d, not the ladder's first rung. No headers on
@@ -205,12 +206,19 @@ async function cmdDispatch(args, flags) {
     ? resolveExhaustionResetAt({ text: failText, provider: entry.provider, nowMs: Date.now() })
     : undefined;
   const prev = readState()[entry.id];
-  const nextRec = nextStateAfterOutcome(prev, {
-    ok,
-    isExhaustion: !!sig.detected,
-    exhaustionResetAt,
-    now,
-  });
+  const nextRec = cliFailure.needsAuth
+    ? {
+        ...prev,
+        state: "needs_auth",
+        note: "CLI reports not authenticated — run login flow for this CLI",
+        checked: now,
+      }
+    : nextStateAfterOutcome(prev, {
+        ok,
+        isExhaustion: !!sig.detected || cliFailure.quotaExhausted,
+        exhaustionResetAt,
+        now,
+      });
   writeState({ [entry.id]: nextRec });
   const outcome = ok ? "success" : (sig.detected ? "quota_exhausted" : "error");
 
@@ -609,8 +617,8 @@ switch (subcmd) {
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
        (--effort = reasoning depth. Use \`high\` for planning, design and review;
         omit it for mechanical edits and lookups — the provider's own default applies.)
-       (--cwd = existing dir for an edit_exists agent to run in and edit in place; default = fresh temp dir; ignored by generate_new)
-       (--file = attach file contents to prompt; repeatable; path:10-50 for line range; paths relative to --cwd)
+       (--cwd = existing dir; with an available edit_exists transport it is preferred and edits in place; generate_new ignores it)
+       (--file = essential context for generate_new; optional for edit_exists because direct CLIs can read --cwd; repeatable; path:10-50 for line range; paths relative to --cwd)
   status [--json]
   probe <agent-id>
   stats [--since ISO] [--json]
