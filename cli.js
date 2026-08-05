@@ -42,7 +42,7 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 // taking parser turns `dispatch <id> --json "prompt"` into {json:"prompt"} and
 // eats the positional — the prompt vanishes ("missing prompt"). Same latent
 // trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
-const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force", "stream"]);
+const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force", "stream", "enabled", "disabled"]);
 const ARRAY_FLAGS = new Set(["file"]);
 const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh", "max"]);
 function parseArgs(argv) {
@@ -329,6 +329,23 @@ function cmdProbe(args) {
   console.log(JSON.stringify({ id: agentId, ...result, checked }));
 }
 
+// `external-agents toggle <id> --enabled|--disabled` — flip the same operator
+// kill switch as the local UI's POST /api/toggle, so a caller never needs the
+// UI's HTTP server just to enable/disable an agent. writeState does a SHALLOW
+// merge, so we deep-merge here to keep probe results (state, note, checked,
+// last_used_at) intact across the flip — mirrors ui.js's /api/toggle exactly.
+function cmdToggle(args, flags) {
+  const [agentId] = args;
+  if (!agentId || !(flags.enabled || flags.disabled) || (flags.enabled && flags.disabled)) {
+    die("usage: external-agents toggle <agent-id> --enabled|--disabled", 2);
+  }
+  if (!findAgent(agentId)) die(`unknown agent: ${agentId}`, 3);
+  const enabled = Boolean(flags.enabled);
+  const current = readState()[agentId] || {};
+  writeState({ [agentId]: { ...current, enabled } });
+  console.log(JSON.stringify({ id: agentId, enabled }));
+}
+
 // `external-agents set-credential ENV_NAME [value]` — persist a credential to
 // ~/.local/state/external-agents/keys.env (0600). Two input paths:
 //   - value supplied as an argument (fine for scripts)
@@ -601,6 +618,7 @@ switch (subcmd) {
   case "dispatch": cmdDispatch(args, flags); break;
   case "status":   cmdStatus(flags); break;
   case "probe":    cmdProbe(args); break;
+  case "toggle":   cmdToggle(args, flags); break;
   case "stats":    cmdStats(flags); break;
   case "ui":       cmdUi(flags); break;
   case "init":     cmdInit(flags); break;
@@ -621,6 +639,7 @@ switch (subcmd) {
        (--file = essential context for generate_new; optional for edit_exists because direct CLIs can read --cwd; repeatable; path:10-50 for line range; paths relative to --cwd)
   status [--json]
   probe <agent-id>
+  toggle <agent-id> --enabled|--disabled  # flip the same kill switch as the UI's POST /api/toggle
   stats [--since ISO] [--json]
   ui [--port N] [--host H] [--no-open]   # local dashboard (auto-opens in browser; use --no-open for SSH/tmux)
   init                                    # alias for 'ui' — kept for backward compat
