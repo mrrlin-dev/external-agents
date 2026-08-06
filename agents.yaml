@@ -565,10 +565,13 @@ agents:
     transports:
       edit_exists: "opencode -p"
 
-  # Kiro CLI (AWS Kiro Studio's headless chat mode). `kiro-cli chat
-  # --no-interactive --trust-tools=fs_read "<prompt>"` runs the agent read-only
-  # (fs_read only, no writes/exec), which is what /consensus terminal reviewers
-  # need. Requires prior `kiro-cli login`; state at ~/.aws/sso equivalent.
+  # Kiro CLI (AWS Kiro Studio's headless chat mode). The trust list must cover
+  # every tool the transport promises: `edit_exists` means "edits files in
+  # place", so fs_write is required, and execute_bash lets the agent run the
+  # acceptance commands (typecheck, git diff) it is asked to report. Trusting
+  # fs_read alone does NOT fail — kiro silently degrades to printing the patch
+  # as text and exits 0 with no files touched, which reads as a success.
+  # Requires prior `kiro-cli login`; state at ~/.aws/sso equivalent.
   - id: kiro
     provider: kiro
     model: default
@@ -583,7 +586,7 @@ agents:
       card_required: false
     transports:
       edit_exists:
-        cmd: "kiro-cli chat --no-interactive --trust-tools=fs_read"
+        cmd: "kiro-cli chat --no-interactive --trust-tools=fs_read,fs_write,execute_bash"
         effort_param: flag
         effort_levels: [low, medium, high, xhigh, max]
         effort_flag: "--effort {level}"
