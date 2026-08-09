@@ -17,7 +17,7 @@
 import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
-import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport } from "./lib/dispatch.js";
+import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
@@ -140,7 +140,7 @@ function cmdPick(flags) {
 async function cmdDispatch(args, flags) {
   const [agentId, ...promptParts] = args;
   const prompt = promptParts.join(" ");
-  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--stream] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
+  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--stream] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
   if (!prompt) die("dispatch: missing prompt", 2);
 
   // --file path[:lines] — repeatable. "src/foo.ts:10-50" → {path, lines}.
@@ -327,6 +327,22 @@ function cmdProbe(args) {
   const checked = Math.floor(Date.now() / 1000);
   writeState({ [agentId]: { ...result, checked } });
   console.log(JSON.stringify({ id: agentId, ...result, checked }));
+}
+
+// `external-agents verify-read-only <id>` runs the entry's declared `read_only`
+// command against a canary file and confirms it truly can't write — the
+// acceptance check the read_only axis exists to enforce (see dispatch.js's
+// probeReadOnlyNonWriting for why a command that LOOKS non-writing, e.g.
+// `--allowedTools` which only ADDS permissions, cannot be trusted on sight).
+// Exits non-zero on any non-verified result so it composes in a pre-merge check.
+async function cmdVerifyReadOnly(args) {
+  const [agentId] = args;
+  if (!agentId) die("usage: cli.js verify-read-only <agent-id>", 2);
+  const entry = findAgent(agentId);
+  if (!entry) die(`unknown agent: ${agentId}`, 3);
+  const result = await probeReadOnlyNonWriting(entry);
+  console.log(JSON.stringify({ id: agentId, ...result }));
+  if (!result.verified) process.exitCode = 1;
 }
 
 // `external-agents toggle <id> --enabled|--disabled` — flip the same operator
@@ -618,6 +634,7 @@ switch (subcmd) {
   case "dispatch": cmdDispatch(args, flags); break;
   case "status":   cmdStatus(flags); break;
   case "probe":    cmdProbe(args); break;
+  case "verify-read-only": await cmdVerifyReadOnly(args); break;
   case "toggle":   cmdToggle(args, flags); break;
   case "stats":    cmdStats(flags); break;
   case "ui":       cmdUi(flags); break;
@@ -629,9 +646,9 @@ switch (subcmd) {
   case "--help":
   case undefined:
     console.error(`external-agents CLI — subcommands:
-  pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists] [--effort <level>]
+  pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists|read_only] [--effort <level>]
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
-  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists] [--effort <level>] [--cwd <dir>] [--file path[:lines]] "<prompt>"
+  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--file path[:lines]] "<prompt>"
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
        (--effort = reasoning depth. Use \`high\` for planning, design and review;
         omit it for mechanical edits and lookups — the provider's own default applies.)
@@ -639,6 +656,7 @@ switch (subcmd) {
        (--file = essential context for generate_new; optional for edit_exists because direct CLIs can read --cwd; repeatable; path:10-50 for line range; paths relative to --cwd)
   status [--json]
   probe <agent-id>
+  verify-read-only <agent-id>  # runs the entry's declared read_only cmd against a canary file; exits 1 unless it's provably non-writing
   toggle <agent-id> --enabled|--disabled  # flip the same kill switch as the UI's POST /api/toggle
   stats [--since ISO] [--json]
   ui [--port N] [--host H] [--no-open]   # local dashboard (auto-opens in browser; use --no-open for SSH/tmux)

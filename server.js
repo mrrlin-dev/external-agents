@@ -126,9 +126,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "dispatch",
         description:
-          "Run a specific agent by id with a prompt. transport ('generate_new' | 'edit_exists') overrides the " +
+          "Run a specific agent by id with a prompt. transport ('generate_new' | 'edit_exists' | 'read_only') overrides the " +
           "default. With cwd, edit_exists is preferred when declared; otherwise generate_new is preferred. escalate_to_pro=true uses the " +
           "same-provider strong-tier entry instead. " +
+          "\n\nread_only: use when the agent must NOT be able to write — e.g. a reviewer dispatched " +
+          "into a live repo it is judging. Selects a declared read_only command, or an implicit " +
+          "generate_new (HTTP has no filesystem access at all). An entry with only edit_exists and " +
+          "no read_only errors rather than silently falling back to the write-capable command." +
           "\n\nROUTING NOTE: for the same task, weak-tier free-tier models (Gemini flash, Groq " +
           "llama, DeepSeek, OpenRouter :free) are usually correct AND fast enough. Use dispatch " +
           "against Claude Opus, Codex Pro, or any strong-tier subscription model ONLY when the " +
@@ -154,7 +158,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             agent_id: { type: "string" },
             prompt: { type: "string" },
-            transport: { type: "string", enum: ["generate_new", "edit_exists"] },
+            transport: { type: "string", enum: ["generate_new", "edit_exists", "read_only"] },
             escalate_to_pro: { type: "boolean" },
             cwd: { type: "string" },
             files: {
