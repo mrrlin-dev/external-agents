@@ -4,7 +4,7 @@ import url from "node:url";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
+import { loadRegistry, LOCAL_PATH, CANONICAL_BASES, nextProviderSlot, withLocalOverlayLock } from "./lib/registry.js";
 import { readState, writeState, probeInstalled, deriveDisplayState } from "./lib/state.js";
 import { verifyCredential, getStats, auditCliEntry } from "./lib/dispatch.js";
 import { bootEnv } from "./lib/credentials.js";
@@ -48,6 +48,11 @@ const BUNDLED_YAML = path.join(__ui_dir, "agents.yaml");
 // touches the registry surface.
 let REGISTRY = loadRegistry(BUNDLED_YAML);
 function reloadRegistry() { REGISTRY = loadRegistry(BUNDLED_YAML); return REGISTRY; }
+// Guards /api/add_provider_key against a double-click firing two concurrent
+// clones for the same base provider (withLocalOverlayLock alone would just
+// serialize them into two DIFFERENT slots, e.g. google2 AND google3 for one
+// paste). Keyed by base_provider, not by env var.
+const addProviderInFlight = new Set();
 const HOST = process.env.EXTERNAL_AGENTS_UI_HOST || "127.0.0.1";
 const PORT = Number(process.env.EXTERNAL_AGENTS_UI_PORT) || 4711;
 
@@ -570,6 +575,29 @@ const PAGE = `<!doctype html>
   .badge.cli    { background: rgba(88,166,255,.14); color: var(--info); border-color: transparent; }
   .badge.apikey { background: rgba(163,113,247,.16); color: #a371f7; border-color: transparent; }
 
+  /* Collapsible banner headers (cli-setup / unlock / api-keys) — click the
+     whole heading row to toggle; state persists in localStorage. */
+  .collapsible-header {
+    cursor: pointer; display: flex; align-items: center;
+    justify-content: space-between; user-select: none;
+  }
+  .collapsible-header .chevron { font-size: 11px; color: var(--text-3); margin-left: 10px; }
+
+  /* Removable numbered-key chips (e.g. "google2 ×") under a provider label in
+     the API Keys panel — the base slug itself is never shown as a chip. */
+  .extra-keys { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 1px 4px 1px 7px; border-radius: 10px;
+    background: var(--panel-2); border: 1px solid var(--border-2);
+    color: var(--text-2); font-size: 10.5px; font-family: var(--mono);
+  }
+  .chip-x {
+    border: none; background: transparent; color: var(--text-3);
+    cursor: pointer; font-size: 12px; line-height: 1; padding: 0 2px;
+  }
+  .chip-x:hover { color: var(--err); }
+
   /* Verify (row-level "run") button — clicks a live audit against ONE agent,
      shows loading + outcome inline before the row redraws. */
   .verify-btn { height: 26px; padding: 0 10px; font-size: 11px; min-width: 68px; margin-top: 4px; }
@@ -686,6 +714,7 @@ const PAGE = `<!doctype html>
 
   <div id="audit-nag" class="audit-nag" style="display:none"></div>
   <div id="unlock" class="unlock" style="display:none"></div>
+  <div id="api-keys" class="unlock" style="display:none"></div>
   <div id="cli-setup" class="unlock cli-setup" style="display:none"></div>
 
   <div class="controls">
@@ -1087,7 +1116,7 @@ const PROVIDER_META = {
   },
   google: {
     label: "Google AI Studio",
-    pitch: "7 Gemini variants, each with its own free-quota bucket.",
+    pitch: "Gemini flash + pro, free API key — no card required.",
     signup: "https://aistudio.google.com/apikey",
     env: "GEMINI_API_KEY",
   },
@@ -1102,6 +1131,12 @@ const PROVIDER_META = {
     pitch: "gpt-oss 20B/120B via your Ollama account.",
     signup: "https://ollama.com/download",
     env: "(configured via the ollama CLI)",
+  },
+  deepseek: {
+    label: "DeepSeek",
+    pitch: "Prepaid balance, per account.",
+    signup: "https://platform.deepseek.com/",
+    env: "DEEPSEEK_API_KEY",
   },
 };
 
@@ -1158,6 +1193,18 @@ const CLI_META = {
 // steps differ per OS/arch and are better handled on the tool's own page. The
 // login step is a copy-pasteable command since that IS the actionable local
 // action once the binary is present.
+// Collapse state for the three dismissable banner panels (cli-setup, unlock,
+// api-keys) persists in localStorage so a closed panel stays closed across
+// both refresh() (which fully rebuilds these boxes' innerHTML) and page
+// reloads.
+function isBoxCollapsed(key) {
+  return localStorage.getItem("collapsed_" + key) === "1";
+}
+function toggleBoxCollapse(key) {
+  localStorage.setItem("collapsed_" + key, isBoxCollapsed(key) ? "0" : "1");
+  refresh();
+}
+
 function renderCliSetup(agents) {
   const box = document.getElementById("cli-setup");
   const needsSetup = agents.filter(a =>
@@ -1195,10 +1242,13 @@ function renderCliSetup(agents) {
         : '<span class="cli-installed-tag">✓ installed</span>') +
     '</div>';
   }).join("");
+  const collapsed = isBoxCollapsed("cli-setup");
   box.innerHTML =
-    '<h2>Set up ' + providers.length + ' CLI agent' + (providers.length > 1 ? "s" : "") + '</h2>' +
-    '<p class="tag">These are subscription/agentic CLIs — no API key to paste. Install the binary (link), log in once (copy the command), then restart your MCP client.</p>' +
-    rows;
+    '<h2 class="collapsible-header" onclick="toggleBoxCollapse(\\'cli-setup\\')">Set up ' + providers.length + ' CLI agent' + (providers.length > 1 ? "s" : "") +
+      '<span class="chevron">' + (collapsed ? "▸" : "▾") + '</span></h2>' +
+    (collapsed ? "" :
+      '<p class="tag">These are subscription/agentic CLIs — no API key to paste. Install the binary (link), log in once (copy the command), then restart your MCP client.</p>' +
+      rows);
   box.style.display = "block";
 }
 
@@ -1207,11 +1257,21 @@ function renderUnlock(agents) {
   // Only surface entries that pasting a key will actually unlock. Skip:
   //   - already disabled by the operator (toggle off)
   //   - model_unavailable — key is fine, model just doesn't exist on this account
-  const missing = agents.filter(a =>
-    (a.tags || []).includes("free") &&
-    a.state === "needs_auth" &&
-    a.enabled !== false
-  );
+  //   - any provider whose FAMILY (base + numbered siblings, e.g. google/google2)
+  //     already has a working key elsewhere — that family belongs in the
+  //     "API Keys" panel's "+ add another key" flow instead, not this banner.
+  const missing = (() => {
+    const digitSuffix = /\\d+$/;
+    const basesWithNonNeedsAuth = new Set(
+      agents.filter(a => a.state !== "needs_auth" && a.enabled !== false)
+            .map(a => a.provider.replace(digitSuffix, ""))
+    );
+    return agents.filter(a => {
+      if (digitSuffix.test(a.provider)) return false;
+      if (basesWithNonNeedsAuth.has(a.provider.replace(digitSuffix, ""))) return false;
+      return (a.tags || []).includes("free") && a.state === "needs_auth" && a.enabled !== false;
+    });
+  })();
   const providers = [...new Set(missing.map(a => a.provider))];
   if (providers.length === 0) { box.style.display = "none"; return; }
   const rows = providers.map(p => {
@@ -1236,11 +1296,132 @@ function renderUnlock(agents) {
       '<a class="btn signup" href="' + m.signup + '" target="_blank" rel="noopener">Get free key ↗</a>' +
     '</div>';
   }).join("");
+  const collapsed = isBoxCollapsed("unlock");
   box.innerHTML =
-    '<h2>Unlock ' + missing.length + ' free-tier model' + (missing.length > 1 ? "s" : "") + '</h2>' +
-    '<p class="tag">These providers offer generous free tiers — sign up (60s, usually no card), paste the key, restart your MCP client. Your dispatch pool grows and your bill stays flat.</p>' +
-    rows;
+    '<h2 class="collapsible-header" onclick="toggleBoxCollapse(\\'unlock\\')">Unlock ' + missing.length + ' free-tier model' + (missing.length > 1 ? "s" : "") +
+      '<span class="chevron">' + (collapsed ? "▸" : "▾") + '</span></h2>' +
+    (collapsed ? "" :
+      '<p class="tag">These providers offer generous free tiers — sign up (60s, usually no card), paste the key, restart your MCP client. Your dispatch pool grows and your bill stays flat.</p>' +
+      rows);
   box.style.display = "block";
+}
+
+// "+ Add another key" panel — the complement of renderUnlock's family check
+// above: shows a provider here iff its family already has >=1 working entry
+// (renderUnlock hides it once that's true). A second key for an
+// already-working provider gets its own numbered provider slug (google2,
+// google3, ...) via POST /api/add_provider_key, so it counts as an
+// independent quota bucket for pick's min_distinct_providers, not a retry of
+// the same one.
+function renderApiKeysPanel(agents) {
+  const box = document.getElementById("api-keys");
+  const digitSuffix = /\\d+$/;
+  const families = new Map();
+  for (const a of agents) {
+    if (a.enabled === false) continue;
+    const base = a.provider.replace(digitSuffix, "");
+    if (!families.has(base)) families.set(base, []);
+    families.get(base).push(a);
+  }
+  const rows = [];
+  for (const [base, members] of families) {
+    if (!members.some(a => a.state !== "needs_auth")) continue;
+    const meta = PROVIDER_META[base];
+    // No env-var story for this base (e.g. a subscription CLI like
+    // ollama-cloud) — nothing to paste, so there is no "+ add key" flow.
+    if (!meta || !meta.env || meta.env.startsWith("(")) continue;
+    const slugs = [...new Set(members.map(a => a.provider))];
+    const slugCount = slugs.length;
+    // The base slug (e.g. "google") is bundled/hand-authored — never removable
+    // here. Numbered siblings (google2, google3, ...) were created by THIS
+    // endpoint, so they can be undone by it too.
+    const extraSlugs = slugs.filter(s => s !== base).sort();
+    const explainer =
+      base === "google"
+        ? "Google AI Studio can gate an entire project at once — separate from each model's own per-minute/per-day limit — even within the same Google account. We confirmed this directly: a request that failed under one project succeeded immediately from a second project's key, same account."
+        : base === "deepseek"
+        ? "Your DeepSeek prepaid balance is tied to the whole account, not to one model — a second account means a second balance."
+        : "This provider's free tier is tied to the whole account, not to one model — a second account means a second free tier.";
+    const extraKeysRow = extraSlugs.length
+      ? '<div class="extra-keys">' + extraSlugs.map(s =>
+          '<span class="chip">' + s +
+            '<button class="chip-x" title="remove ' + s + '" onclick="removeProviderKey(\\'' + base + '\\',\\'' + s + '\\')">×</button>' +
+          '</span>'
+        ).join("") + '</div>'
+      : "";
+    rows.push(
+      '<div class="unlock-row">' +
+        '<div><div class="prov">' + meta.label + ' <span class="badge">' + slugCount + ' key' + (slugCount > 1 ? "s" : "") + '</span></div>' + extraKeysRow + '</div>' +
+        '<div class="pitch">' + explainer + '</div>' +
+        '<div>' +
+          '<div class="keyrow">' +
+            '<input id="pk-' + base + '" class="keyinput" type="password" placeholder="paste another ' + meta.env + '" ' +
+              'onkeydown="if(event.key===\\'Enter\\')addProviderKey(\\'' + base + '\\')">' +
+            '<button class="btn primary" onclick="addProviderKey(\\'' + base + '\\')">Add key</button>' +
+          '</div>' +
+          '<span id="pks-' + base + '" class="status"></span>' +
+        '</div>' +
+        '<div></div>' +
+      '</div>'
+    );
+  }
+  if (rows.length === 0) { box.style.display = "none"; return; }
+  const collapsed = isBoxCollapsed("api-keys");
+  box.innerHTML =
+    '<h2 class="collapsible-header" onclick="toggleBoxCollapse(\\'api-keys\\')">API keys' +
+      '<span class="chevron">' + (collapsed ? "▸" : "▾") + '</span></h2>' +
+    (collapsed ? "" :
+      '<p class="tag">Already using one of these? Add another account\\'s key — it gets its own quota bucket, so a limit on the first key no longer stalls dispatch.</p>' +
+      rows.join(""));
+  box.style.display = "block";
+}
+
+async function addProviderKey(base) {
+  const inp = document.getElementById("pk-" + base);
+  const stat = document.getElementById("pks-" + base);
+  const val = (inp.value || "").trim();
+  if (!val) { stat.textContent = "empty value"; stat.style.color = "var(--err)"; return; }
+  stat.textContent = "adding…"; stat.style.color = "var(--text-2)";
+  try {
+    const r = await fetch("/api/add_provider_key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_provider: base, value: val })
+    });
+    const j = await r.json();
+    if (r.ok && j.ok) {
+      stat.innerHTML = '<span style="color:var(--accent);">✓ +' + j.cloned_ids.length + ' models added as ' + j.provider_slug + '</span>' + (j.warning ? ' — ' + j.warning : "");
+      inp.value = "";
+      await refresh();
+    } else {
+      stat.textContent = "error: " + (j.error || r.statusText);
+      stat.style.color = "var(--err)";
+    }
+  } catch (e) {
+    stat.textContent = "network error: " + e.message;
+    stat.style.color = "var(--err)";
+  }
+}
+
+async function removeProviderKey(base, slug) {
+  if (!confirm("Remove " + slug + " and its models? This deletes the associated key too.")) return;
+  const stat = document.getElementById("pks-" + base);
+  try {
+    const r = await fetch("/api/remove_provider_key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider_slug: slug })
+    });
+    const j = await r.json();
+    if (r.ok && j.ok) {
+      await refresh();
+    } else if (stat) {
+      stat.textContent = "error: " + (j.error || r.statusText);
+      stat.style.color = "var(--err)";
+    }
+  } catch (e) {
+    if (stat) { stat.textContent = "network error: " + e.message; stat.style.color = "var(--err)"; }
+  }
 }
 
 async function saveKey(envName) {
@@ -1294,6 +1475,7 @@ async function refresh() {
   ]);
   renderStats(stats);
   renderUnlock(state.agents);
+  renderApiKeysPanel(state.agents);
   renderCliSetup(state.agents);
   renderRows(state.agents, stats.by_agent);
 }
@@ -1431,6 +1613,196 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         return json(res, 400, { error: "invalid json: " + e.message });
       }
+    });
+    return;
+  }
+
+  // POST /api/add_provider_key { base_provider, value } — clone every entry
+  // for an already-configured provider under a NEW numbered provider slug
+  // (google -> google2, google3, ...) so a second account's key becomes an
+  // independently-quota'd sibling instead of overwriting the first. See
+  // lib/registry.js's CANONICAL_BASES / nextProviderSlot / withLocalOverlayLock
+  // for the invariants this depends on (canonical-base eligibility, slot
+  // numbering keyed off distinct provider slugs, cross-process-safe overlay
+  // write).
+  if (req.method === "POST" && p === "/api/add_provider_key") {
+    let body = "";
+    req.on("data", (c) => { body += c.toString(); });
+    req.on("end", async () => {
+      let base_provider, value;
+      try {
+        ({ base_provider, value } = JSON.parse(body || "{}"));
+      } catch (e) {
+        return json(res, 400, { error: "invalid json: " + e.message });
+      }
+      if (!base_provider || typeof base_provider !== "string") {
+        return json(res, 400, { error: "missing base_provider" });
+      }
+      if (!value || typeof value !== "string") {
+        return json(res, 400, { error: "missing value" });
+      }
+      if (!CANONICAL_BASES(REGISTRY).has(base_provider)) {
+        return json(res, 400, { error: `unknown or non-canonical base provider: ${base_provider}` });
+      }
+      if (addProviderInFlight.has(base_provider)) {
+        return json(res, 409, { error: `an add-key request for ${base_provider} is already in progress` });
+      }
+      addProviderInFlight.add(base_provider);
+      try {
+        const baseAgent = REGISTRY.agents.find(
+          (a) => a.provider === base_provider && typeof a.auth === "string" && a.auth.startsWith("env:")
+        );
+        if (!baseAgent) {
+          return json(res, 400, { error: `no env:-auth entry found for base provider: ${base_provider}` });
+        }
+        const baseEnvName = baseAgent.auth.slice("env:".length).split(/\s+/)[0];
+
+        let provider_slug, newEnvName, clonedIds;
+        try {
+          await withLocalOverlayLock(async (overlay) => {
+            // Fresh merge of bundled + the overlay withLocalOverlayLock just
+            // handed us — never the in-process REGISTRY, which could be
+            // stale relative to a write another process just made.
+            const bundled = yaml.load(fs.readFileSync(BUNDLED_YAML, "utf-8"));
+            const merged = { agents: [...bundled.agents, ...overlay.agents] };
+            const N = nextProviderSlot(merged, base_provider);
+            provider_slug = `${base_provider}${N}`;
+            newEnvName = `${baseEnvName}_${N}`;
+
+            clonedIds = [];
+            for (const a of merged.agents.filter((x) => x.provider === base_provider)) {
+              const newId = `${a.id}-${N}`;
+              if (overlay.agents.some((x) => x.id === newId)) continue;
+              const transports = structuredClone(a.transports || {});
+              for (const t of Object.values(transports)) {
+                if (t && t.env === baseEnvName) t.env = newEnvName;
+              }
+              overlay.agents.push({ ...a, id: newId, provider: provider_slug, auth: `env:${newEnvName}`, transports });
+              clonedIds.push(newId);
+            }
+            return overlay;
+          });
+        } catch (lockErr) {
+          const status = /^registry busy/.test(lockErr.message) ? 503 : 500;
+          return json(res, status, { error: lockErr.message });
+        }
+
+        reloadRegistry();
+        const persisted = loadKeysFile();
+        persisted[newEnvName] = value;
+        saveKeysFile(persisted);
+        process.env[newEnvName] = value;
+        console.error(`external-agents ui: add_provider_key ${base_provider} -> ${provider_slug} (${clonedIds.length} clones, env=${newEnvName})`);
+
+        try {
+          const cloneAgents = clonedIds.map((id) => REGISTRY.agents.find((a) => a.id === id)).filter(Boolean);
+          const patch = {};
+          for (const a of cloneAgents) {
+            const r = probeInstalled(a);
+            patch[a.id] = { ...r, checked: Math.floor(Date.now() / 1000) };
+          }
+          const toVerify = cloneAgents.filter((a) => a.transports?.generate_new?.url);
+          const verifyResults = await Promise.all(toVerify.map(async (a) => {
+            const v = await verifyCredential(a);
+            return { agent_id: a.id, provider: a.provider, ...v };
+          }));
+          for (const vr of verifyResults) {
+            if (vr.ok) continue;
+            if (vr.modelUnavailable) {
+              patch[vr.agent_id] = {
+                state: "model_unavailable",
+                note: `provider says model does not exist (HTTP ${vr.status || "?"})`,
+                checked: Math.floor(Date.now() / 1000),
+              };
+            } else {
+              for (const a of cloneAgents) {
+                patch[a.id] = {
+                  state: "needs_auth",
+                  note: `verify failed: ${vr.hint || "unknown"}`,
+                  checked: Math.floor(Date.now() / 1000),
+                };
+              }
+            }
+          }
+          if (Object.keys(patch).length > 0) writeState(patch);
+          return json(res, 200, { ok: true, provider_slug, cloned_ids: clonedIds, verified: verifyResults });
+        } catch (verifyErr) {
+          return json(res, 200, {
+            ok: true,
+            provider_slug,
+            cloned_ids: clonedIds,
+            verified: [],
+            warning: `key saved but post-add verification failed: ${verifyErr.message}`,
+          });
+        }
+      } finally {
+        addProviderInFlight.delete(base_provider);
+      }
+    });
+    return;
+  }
+
+  // POST /api/remove_provider_key { provider_slug } — the inverse of
+  // /api/add_provider_key: drops every agents.local.yaml entry for a NUMBERED
+  // provider slug (google2, groq3, ...) plus its dedicated env var. Rejects
+  // canonical (non-numbered) bases outright — those are bundled/hand-authored,
+  // never something this UI created, so there is nothing here to safely undo.
+  if (req.method === "POST" && p === "/api/remove_provider_key") {
+    let body = "";
+    req.on("data", (c) => { body += c.toString(); });
+    req.on("end", async () => {
+      let provider_slug;
+      try {
+        ({ provider_slug } = JSON.parse(body || "{}"));
+      } catch (e) {
+        return json(res, 400, { error: "invalid json: " + e.message });
+      }
+      if (!provider_slug || typeof provider_slug !== "string" || !/\d+$/.test(provider_slug)) {
+        return json(res, 400, { error: "provider_slug must be a numbered slug (e.g. google2) — canonical bases cannot be removed here" });
+      }
+      let removedIds, removedEnvNames;
+      try {
+        await withLocalOverlayLock(async (overlay) => {
+          removedIds = [];
+          removedEnvNames = new Set();
+          overlay.agents = overlay.agents.filter((a) => {
+            if (a.provider !== provider_slug) return true;
+            removedIds.push(a.id);
+            if (typeof a.auth === "string" && a.auth.startsWith("env:")) {
+              removedEnvNames.add(a.auth.slice("env:".length).split(/\s+/)[0]);
+            }
+            return false;
+          });
+          return overlay;
+        });
+      } catch (lockErr) {
+        const status = /^registry busy/.test(lockErr.message) ? 503 : 500;
+        return json(res, status, { error: lockErr.message });
+      }
+      if (removedIds.length === 0) {
+        return json(res, 404, { error: `no removable entries for provider: ${provider_slug} — it may be bundled/hand-authored rather than created by "+ Add another key"` });
+      }
+      reloadRegistry();
+      // Only drop the env var from keys.env once nothing in the registry
+      // still references it — defensive; in practice a numbered slug's env
+      // var is never shared with any other entry.
+      const stillReferenced = new Set(
+        REGISTRY.agents
+          .filter((a) => typeof a.auth === "string" && a.auth.startsWith("env:"))
+          .map((a) => a.auth.slice("env:".length).split(/\s+/)[0])
+      );
+      const persisted = loadKeysFile();
+      let keysChanged = false;
+      for (const envName of removedEnvNames) {
+        if (!stillReferenced.has(envName) && envName in persisted) {
+          delete persisted[envName];
+          delete process.env[envName];
+          keysChanged = true;
+        }
+      }
+      if (keysChanged) saveKeysFile(persisted);
+      console.error(`external-agents ui: remove_provider_key ${provider_slug} (${removedIds.length} entries, env(s) ${[...removedEnvNames].join(",")})`);
+      return json(res, 200, { ok: true, provider_slug, removed_ids: removedIds });
     });
     return;
   }
