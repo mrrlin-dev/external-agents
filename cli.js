@@ -14,7 +14,7 @@
 //        {"outcome":..., "exit_code":..., "duration_ms":..., "workdir":...}
 //   status [--json]  → table of every registry entry with state (or JSON)
 //   probe <agent-id> → probes one agent, prints new state JSON
-import { loadRegistry, LOCAL_PATH } from "./lib/registry.js";
+import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.js";
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
 import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting } from "./lib/dispatch.js";
@@ -577,7 +577,7 @@ async function cmdAudit(flags) {
 // Append a locally-authored agent to the local overlay yaml. Minimum viable:
 // caller passes id / provider / url / model / env; we build the entry and
 // merge it into ~/.local/state/external-agents/agents.local.yaml.
-function cmdAddModel(flags) {
+async function cmdAddModel(flags) {
   const need = ["id", "provider", "url", "model", "env"];
   const missing = need.filter((k) => !flags[k]);
   if (missing.length) {
@@ -598,22 +598,35 @@ function cmdAddModel(flags) {
       },
     },
   };
-  // Load existing overlay (or start fresh) — append/replace by id.
-  let overlay = { schema_version: 1, agents: [] };
+  // Preserve the original unreadable-file check outside the lock so the exact
+  // die() message/exit code still fires for a corrupt existing overlay —
+  // withLocalOverlayLock's generic mutator silently treats unreadable as
+  // empty, which is right for the UI's add_provider_key path but would look
+  // like silent data loss from a direct CLI invocation.
   if (fs.existsSync(LOCAL_PATH)) {
     try {
-      const parsed = yaml.load(fs.readFileSync(LOCAL_PATH, "utf-8"));
-      if (parsed && Array.isArray(parsed.agents)) overlay = parsed;
+      yaml.load(fs.readFileSync(LOCAL_PATH, "utf-8"));
     } catch (e) {
       die(`add-model: existing ${LOCAL_PATH} unreadable — ${e.message}`, 1);
     }
   }
-  const idx = overlay.agents.findIndex((a) => a.id === entry.id);
-  if (idx >= 0) overlay.agents[idx] = entry;
-  else overlay.agents.push(entry);
-  fs.mkdirSync(path.dirname(LOCAL_PATH), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(LOCAL_PATH, yaml.dump(overlay), { mode: 0o644 });
-  console.log(`${idx >= 0 ? "replaced" : "added"}: ${entry.id}`);
+  let replaced = false;
+  try {
+    await withLocalOverlayLock(async (overlay) => {
+      const idx = overlay.agents.findIndex((a) => a.id === entry.id);
+      if (idx >= 0) {
+        overlay.agents[idx] = entry;
+        replaced = true;
+      } else {
+        overlay.agents.push(entry);
+        replaced = false;
+      }
+      return overlay;
+    });
+  } catch (e) {
+    die(`add-model: failed to write overlay — ${e.message}`, 1);
+  }
+  console.log(`${replaced ? "replaced" : "added"}: ${entry.id}`);
   console.log(`wrote:    ${LOCAL_PATH}`);
   console.log(`re-run 'external-agents probe ${entry.id}' to verify.`);
 }

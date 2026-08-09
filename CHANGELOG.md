@@ -4,6 +4,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-08-09
+
+### Added
+
+- `POST /api/add_provider_key` and a matching "+ Add another key" panel in `external-agents ui`: lets an operator register a second (third, ...) API key for a provider they already use. Every `env:*`-auth base provider (Google AI Studio, Groq, DeepSeek, OpenRouter, Cerebras, Z.ai, ...) is eligible. The new key's models are cloned under a numbered provider slug (`google` → `google2` → `google3`, ...) with a derived env-var name (`GEMINI_API_KEY_2`), so the second key is an independently-quota'd sibling `pick`'s `min_distinct_providers` already treats as diverse — not a silent overwrite of the first. The raw secret is written only to `keys.env`, under the new derived name; `agents.local.yaml` only ever stores the env-var name.
+- `POST /api/remove_provider_key`, with a removable "×" chip per numbered key in the same panel — the inverse of the above. Refuses to touch a canonical (non-numbered) base outright; a bundled/hand-authored provider was never created by this endpoint and isn't something it can safely undo.
+- `lib/registry.js`: `CANONICAL_BASES(registry)`, `nextProviderSlot(registry, baseProvider)`, and `withLocalOverlayLock(mutatorFn)` — the shared primitives behind both endpoints (and `cmdAddModel`, which now goes through the same lock for cross-process safety with the UI).
+- Two Google AI Studio entries (`gemini-3.6-flash`, `gemini-3.1-pro-preview`, the latter disabled by default) trimmed down from five variants — redundancy against Google's quota gate now comes from adding another key via the panel above, not from registering more models under the same key.
+- A second, independent Google AI Studio key/project (`google2`, `GEMINI_API_KEY_2`) and 11 Antigravity CLI (`agy`) entries (Gemini, Claude, and gpt-oss variants reachable through the `agy` CLI, `provider: antigravity`) — both confirmed live to be genuinely independent quota pools from the primary `google`/`claude` entries.
+- The dismissable "API keys" / "CLI setup" / "Unlock" banner panels in `external-agents ui` are now individually collapsible, with the collapsed/expanded state persisted per-panel in the browser's `localStorage`.
+
+### Fixed
+
+- `classifyCliFailure`'s quota-exhaustion detection didn't recognize Antigravity CLI's own wording ("Individual quota reached..."), so every `agy-*` 429 misclassified as a generic `errored_transient` — no `reset_at`/cooldown got recorded, so `pick()`'s cooldown-skip never applied, and the dashboard showed what looked like an unexplained error instead of a normal (if multi-day) quota cooldown. Confirmed via a full live `external-agents audit` across the entire registry before and after the fix.
+- `renderUnlock`'s free-tier "Unlock" banner filter only excluded a provider's own numbered siblings, not the reverse: a numbered sibling with a working key didn't stop its *base* provider from still appearing in the banner. The filter is now bidirectional — a family (base + numbered siblings) is hidden from "Unlock" once ANY member is verified, and picked up by the new "API keys" panel instead.
+
 ## [0.35.0] - 2026-08-06
 
 ### Added
