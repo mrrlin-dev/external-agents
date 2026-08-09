@@ -4,11 +4,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
-## [0.34.1] - 2026-08-06
+## [0.35.0] - 2026-08-06
+
+### Added
+
+- New `read_only` transport kind, alongside `edit_exists`/`generate_new`. A `read_only` command is a distinct, separately-declared CLI invocation — never the `edit_exists` command with a hopeful instruction appended, and never trusted on the strength of its flags looking non-writing (`claude --print --allowedTools ...` looks read-only and still writes: `--allowedTools` only adds permissions, it never restricts them). `dispatch --transport read_only` / `pick --transport read_only` select a declared `read_only` command, or an implicit `generate_new` (an HTTP completion call has no filesystem access at all). Requesting `read_only` on an entry that declares neither is a hard error — it never silently falls back to a write-capable command.
+- `external-agents verify-read-only <agent-id>` — runs an entry's declared `read_only` command against a canary file in a scratch directory and confirms the file comes back unchanged. Exits non-zero unless verified. This is the acceptance check every `read_only` entry in this registry was required to pass before being declared.
+- Declared and verified `read_only` commands for `kiro` (`--trust-tools=fs_read`, the CLI's original — and, per the fix below, no longer default — invocation) and for `claude-opus-4-8`, `claude-sonnet-5`, and `claude-haiku-4-5` (`--disallowedTools Write,Edit,NotebookEdit,Bash`). The three Claude entries' `read_only` commands do not declare `effort_levels`: their command ends in a trailing `--`, and `runDispatch` inserts the effort flag AFTER the full command — including that `--` — which was confirmed to swallow the prompt entirely rather than erroring loudly. Do not add effort support there until that interaction is fixed and independently verified.
+- `~/.codex/scripts/consensus.sh` now picks and dispatches every reviewer with `--transport read_only`. Reviewers run in the live repo under review (`cd "$cwd"` there is unchanged); before this, only a prompt instruction ("Do not edit files") stood between a reviewer and the repo it was judging — the same class of unenforced constraint the kiro incident showed does not bind tool access.
 
 ### Fixed
 
 - `kiro`'s `edit_exists` transport trusted only `fs_read`, so the agent could read the working directory but never write to it. It did not fail — it printed the patch as text and exited 0 with no files touched, which the dispatcher reported as `success` with `files: []`. The trust list now covers `fs_read,fs_write,execute_bash`, matching what the `edit_exists` transport promises.
+- `pick`'s `--transport` filter checked for a literal transport key, which meant `--transport read_only` would have excluded every `generate_new`-only entry even though HTTP transports are read-only by construction. It now recognizes that implicit case, matching `dispatch`'s `selectTransport`.
 
 ## [0.34.0] - 2026-08-04
 

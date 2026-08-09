@@ -33,6 +33,26 @@
 # When both are present, `runAny` picks `generate_new` unless overridden.
 # Request `edit_exists` for an in-place edit; direct CLIs can inspect the cwd,
 # so attached files are optional on that transport.
+#   transports.read_only     — same direct-CLI spawn as edit_exists, but the
+#     command is the CLI's no-write invocation (a distinct trust list / sandbox
+#     flag / disallowed-tools set, NOT the edit_exists cmd with a hopeful
+#     instruction appended). Requesting `read_only` on an entry that declares
+#     neither `read_only` nor `generate_new` is a hard error — it never falls
+#     back to a write-capable command. `generate_new` entries satisfy a
+#     read_only request without declaring anything: an HTTP completion call
+#     has no filesystem access at all, so it is read-only by construction.
+#     A `read_only` cmd must be verified with `external-agents verify-read-only
+#     <id>` (runs it against a canary file and confirms the file is
+#     unchanged) before it is trusted — a command whose FLAGS merely look
+#     non-writing is not proof; `claude --print --allowedTools Read,Grep,Glob`
+#     looks read-only and still writes, because --allowedTools only ADDS
+#     permissions and never restricts them. This axis exists because kiro was
+#     dispatched under `edit_exists` with a read-only trust list: it degraded
+#     silently to printing patches as prose, and dispatch reported
+#     `outcome: success` for work that never happened. `read_only` gives
+#     read-only dispatch (e.g. /consensus reviewers, which run in the live
+#     repo they are judging) a declared, verified transport instead of a
+#     write-capable command plus a prompt asking it to behave.
 #
 # Auth surfaces (2, merged from previous 3):
 #   env:VAR   — external-agents reads the value from process.env.VAR
@@ -591,6 +611,16 @@ agents:
         effort_levels: [low, medium, high, xhigh, max]
         effort_flag: "--effort {level}"
         effort_verified: validated
+      # Verified with `external-agents verify-read-only kiro`: a canary file
+      # was demonstrably unchanged after dispatch. This is the ORIGINAL
+      # edit_exists cmd from before this incident — trusting only fs_read is
+      # exactly what makes it non-writing.
+      read_only:
+        cmd: "kiro-cli chat --no-interactive --trust-tools=fs_read"
+        effort_param: flag
+        effort_levels: [low, medium, high, xhigh, max]
+        effort_flag: "--effort {level}"
+        effort_verified: validated
 
   # ============ Primary orchestrator (subscription CLI) ============
   # These are strong-tier agentic CLIs backed by an operator subscription — not
@@ -680,6 +710,20 @@ agents:
         effort_levels: [low, medium, high, xhigh, max]
         effort_flag: "--effort {level}"
         effort_verified: validated
+      # Verified with `external-agents verify-read-only claude-opus-4-8`.
+      # NOT `--allowedTools Read,Grep,Glob` — that ADDS permissions on top of
+      # the default set rather than restricting to it, and still writes. The
+      # trailing `--` is required: without it the variadic --disallowedTools
+      # flag swallows the prompt argument and the CLI exits with "Input must
+      # be provided". `MultiEdit` must not appear in the deny list; it is not
+      # a known tool name and its presence aborts the run.
+      # No effort_levels here (deliberately, not an oversight): runDispatch
+      # inserts the effort flag right before the prompt, i.e. AFTER this cmd's
+      # trailing `--`, and that combination is untested — do not add effort
+      # fields until `--effort {level}` has been verified to land before `--`
+      # rather than after it.
+      read_only:
+        cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-8 --disallowedTools Write,Edit,NotebookEdit,Bash --"
 
   # claude-opus-4-7 removed: near-duplicate of 4-8 on a SHARED subscription
   # quota bucket — exposing both gives zero extra throughput, only an arbitrary
@@ -707,6 +751,11 @@ agents:
         effort_levels: [low, medium, high, xhigh, max]
         effort_flag: "--effort {level}"
         effort_verified: validated
+      # Verified with `external-agents verify-read-only claude-sonnet-5`. See
+      # claude-opus-4-8's read_only entry above for why --allowedTools is
+      # wrong here and why no effort_levels are declared.
+      read_only:
+        cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-sonnet-5 --disallowedTools Write,Edit,NotebookEdit,Bash --"
 
   - id: claude-haiku-4-5
     provider: anthropic
@@ -729,3 +778,8 @@ agents:
         effort_levels: [low, medium, high, xhigh, max]
         effort_flag: "--effort {level}"
         effort_verified: validated
+      # Verified with `external-agents verify-read-only claude-haiku-4-5`. See
+      # claude-opus-4-8's read_only entry above for why --allowedTools is
+      # wrong here and why no effort_levels are declared.
+      read_only:
+        cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-haiku-4-5-20251001 --disallowedTools Write,Edit,NotebookEdit,Bash --"

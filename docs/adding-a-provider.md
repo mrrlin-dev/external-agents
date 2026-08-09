@@ -136,6 +136,36 @@ Use `edit_exists` with a direct CLI for codebase edits, tests, and iterative wor
 
 The bundled API-provider entries are intentionally generation-only. For an edit, select a bundled direct-CLI entry such as `codex` or `claude-opus-4-8`, or filter `pick_agents` by `transport: "edit_exists"`.
 
+## Declaring `read_only` (for dispatches that must not write)
+
+A `read_only` transport is a THIRD command on an `edit_exists` entry, not a
+flag on the existing one — it exists because CLI flags that merely look
+non-writing are not proof they are. `claude --print --allowedTools Read,Grep,Glob`
+looks read-only and still writes, because `--allowedTools` ADDS permissions on
+top of the defaults rather than restricting to them. The command that actually
+doesn't write needs its OWN, separately verified, entry:
+
+```yaml
+transports:
+  edit_exists:
+    cmd: "example-agent --print"
+  read_only:
+    cmd: "example-agent --print --disallowed-tools write,edit,bash"
+```
+
+Before trusting a `read_only` cmd, prove it with `external-agents
+verify-read-only <agent-id>` — it runs the command against a canary file in a
+scratch directory and confirms the file comes back unchanged. A declared but
+unverified `read_only` command is the same failure class this axis exists to
+catch (see `kiro`'s incident: `edit_exists` trusting only a read-capable tool
+silently degraded to printing patches as prose instead of erroring).
+
+`generate_new` entries need no `read_only` declaration — an HTTP completion
+call has no filesystem access at all, so it satisfies a `transport: "read_only"`
+request as-is. An `edit_exists`-only entry with no declared `read_only` command
+does NOT satisfy that request; `pick`/`dispatch --transport read_only` error
+rather than silently falling back to the write-capable command.
+
 ## Common gotchas
 
 - **CLI invocation**: `edit_exists` passes the task prompt as the command's final positional argument. Verify this contract for a custom CLI before registering it.
