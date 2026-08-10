@@ -385,7 +385,6 @@ const PAGE = `<!doctype html>
   }
   .cli-cmd:hover { border-color: var(--info); }
   .cli-cmd.copied { color: var(--accent); border-color: var(--accent); }
-  .cli-installed-tag { font-size: 11px; color: var(--accent); font-family: var(--mono); align-self: center; white-space: nowrap; }
   .unlock-row .keyinput {
     flex: 1; height: 32px; box-sizing: border-box;
     padding: 0 10px;
@@ -1227,6 +1226,17 @@ function renderCliSetup(agents) {
           '<code class="cli-cmd" title="click to copy" onclick="copyCmd(this)">' + esc(m.auth) + '</code>' +
         '</div>'
       : '';
+    // Installing/logging in never flips state.json itself — a subscription
+    // CLI's login can't be cheaply probed at rest (see deriveDisplayState),
+    // so needs_auth persists until a real audit runs. Give the row its own
+    // probe button (mirrors the per-agent "run probe" in the table) so the
+    // operator can clear the banner right after logging in instead of
+    // waiting to discover the stale state elsewhere.
+    const btnId = "vb-cli-" + p.replace(/[^a-z0-9]/gi, "_");
+    const ids = list.map(a => a.id);
+    const verifyBtn = '<button class="btn verify-btn" id="' + btnId + '" ' +
+      'data-ids="' + esc(JSON.stringify(ids)) + '" onclick="verifyCliProvider(this)" ' +
+      'title="Live probe — dispatch a tiny prompt per model and update state">run probe</button>';
     return '<div class="cli-setup-row">' +
       '<div>' +
         '<div class="prov">' + m.label + '</div>' +
@@ -1239,7 +1249,7 @@ function renderCliSetup(agents) {
       '</div>' +
       (anyMissing
         ? '<a class="btn signup" href="' + m.installUrl + '" target="_blank" rel="noopener">Install ↗</a>'
-        : '<span class="cli-installed-tag">✓ installed</span>') +
+        : verifyBtn) +
     '</div>';
   }).join("");
   const collapsed = isBoxCollapsed("cli-setup");
@@ -1501,6 +1511,29 @@ async function verify(id) {
     if (btn) { btn.textContent = "✗ err"; btn.disabled = false; }
     setTimeout(() => refresh(), 1200);
   }
+}
+// Same probe as verify() but for the CLI-setup banner, where one provider
+// (e.g. codex) can back several registry ids — probing just one wouldn't
+// clear the banner, since renderCliSetup keeps showing the provider as long
+// as ANY of its ids is still needs_auth/not_installed.
+async function verifyCliProvider(btn) {
+  const ids = JSON.parse(btn.dataset.ids || "[]");
+  if (!ids.length) return;
+  btn.textContent = "...";
+  btn.disabled = true;
+  try {
+    const results = await Promise.all(ids.map(id =>
+      fetch("/api/audit?id=" + encodeURIComponent(id), { method: "POST" }).then(r => r.json())
+    ));
+    const allHealthy = results.every(j => j.outcome === "healthy");
+    const glyph = allHealthy ? "✓" : results.some(j => j.outcome === "healthy") ? "△" : "⚠";
+    btn.textContent = glyph + " " + (allHealthy ? "verified" : results[0].outcome);
+    btn.disabled = false;
+  } catch (e) {
+    btn.textContent = "✗ err";
+    btn.disabled = false;
+  }
+  setTimeout(() => refresh(), 1200);
 }
 document.querySelectorAll("#thead-row th[data-sort]").forEach(th => {
   th.addEventListener("click", () => setSort(th.dataset.sort));

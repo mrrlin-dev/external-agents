@@ -588,6 +588,13 @@ agents:
   # shared reflects that these sibling ids likely exhaust together, unlike
   # AI Studio's genuinely per-model buckets. Re-classify to per_model if a
   # future audit shows one agy model surviving while a sibling 429s.
+  #
+  # Trimmed to 1-2 entries per real quota bucket (2026-08-10): agy actually
+  # has two independent account quotas — a Gemini-family one and a
+  # Claude-family one — plus gpt-oss-120b-medium on its own. Listing every
+  # -high/-medium/-low variant per family just wasted pick/dispatch attempts
+  # on siblings that exhaust together; kept the quick (-high, fastest) and
+  # reasoning variant per family instead of the full effort ladder.
   - id: agy-gemini-3.6-flash-high
     provider: antigravity
     model: gemini-3.6-flash-high
@@ -603,81 +610,6 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
-  - id: agy-gemini-3.6-flash-medium
-    provider: antigravity
-    model: gemini-3.6-flash-medium
-    quota_scope: shared
-    tier: weak
-    tags: [quick, agentic, free]
-    auth: "cli:agy"
-    free_tier:
-      description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
-      limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
-      card_required: false
-    transports:
-      edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-medium"
-        cwd_flag: "--add-dir {cwd}"
-  - id: agy-gemini-3.6-flash-low
-    provider: antigravity
-    model: gemini-3.6-flash-low
-    quota_scope: shared
-    tier: weak
-    tags: [quick, agentic, free]
-    auth: "cli:agy"
-    free_tier:
-      description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
-      limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
-      card_required: false
-    transports:
-      edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-low"
-        cwd_flag: "--add-dir {cwd}"
-  - id: agy-gemini-3.5-flash-high
-    provider: antigravity
-    model: gemini-3.5-flash-high
-    quota_scope: shared
-    tier: weak
-    tags: [quick, agentic, free]
-    auth: "cli:agy"
-    free_tier:
-      description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
-      limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
-      card_required: false
-    transports:
-      edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-high"
-        cwd_flag: "--add-dir {cwd}"
-  - id: agy-gemini-3.5-flash-medium
-    provider: antigravity
-    model: gemini-3.5-flash-medium
-    quota_scope: shared
-    tier: weak
-    tags: [quick, agentic, free]
-    auth: "cli:agy"
-    free_tier:
-      description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
-      limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
-      card_required: false
-    transports:
-      edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-medium"
-        cwd_flag: "--add-dir {cwd}"
-  - id: agy-gemini-3.5-flash-low
-    provider: antigravity
-    model: gemini-3.5-flash-low
-    quota_scope: shared
-    tier: weak
-    tags: [quick, agentic, free]
-    auth: "cli:agy"
-    free_tier:
-      description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
-      limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
-      card_required: false
-    transports:
-      edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-low"
-        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.1-pro-high
     provider: antigravity
     model: gemini-3.1-pro-high
@@ -692,21 +624,6 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.1-pro-high"
-        cwd_flag: "--add-dir {cwd}"
-  - id: agy-gemini-3.1-pro-low
-    provider: antigravity
-    model: gemini-3.1-pro-low
-    quota_scope: shared
-    tier: strong
-    tags: [reasoning, agentic, free]
-    auth: "cli:agy"
-    free_tier:
-      description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
-      limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
-      card_required: false
-    transports:
-      edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gemini-3.1-pro-low"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-claude-sonnet-4-6
     provider: antigravity
