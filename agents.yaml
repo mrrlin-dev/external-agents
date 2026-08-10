@@ -516,6 +516,11 @@ agents:
       card_required: false
     transports:
       edit_exists: "cursor-agent -p --output-format text --trust"
+      # `--mode plan` is Cursor's own documented read-only/planning mode (no
+      # edits available, not just a prompt-level restriction) — see `--help`:
+      # "plan: read-only/planning (analyze, propose plans, no edits)".
+      # Verified with `external-agents verify-read-only cursor-agent`.
+      read_only: "cursor-agent -p --output-format text --mode plan --trust"
 
   - id: opencode
     provider: sst
@@ -603,6 +608,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-high"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.6-flash-medium
     provider: antigravity
     model: gemini-3.6-flash-medium
@@ -617,6 +625,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-medium"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-medium"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.6-flash-low
     provider: antigravity
@@ -633,6 +644,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-low"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-low"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.5-flash-high
     provider: antigravity
     model: gemini-3.5-flash-high
@@ -647,6 +661,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-high"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.5-flash-high"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.5-flash-medium
     provider: antigravity
@@ -663,6 +680,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-medium"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.5-flash-medium"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.5-flash-low
     provider: antigravity
     model: gemini-3.5-flash-low
@@ -677,6 +697,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-low"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.5-flash-low"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.1-pro-high
     provider: antigravity
@@ -693,6 +716,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.1-pro-high"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.1-pro-low
     provider: antigravity
     model: gemini-3.1-pro-low
@@ -707,6 +733,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.1-pro-low"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.1-pro-low"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-claude-sonnet-4-6
     provider: antigravity
@@ -723,6 +752,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model claude-sonnet-4-6"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-claude-opus-4-6-thinking
     provider: antigravity
     model: claude-opus-4-6-thinking
@@ -738,6 +770,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model claude-opus-4-6-thinking"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gpt-oss-120b-medium
     provider: antigravity
     model: gpt-oss-120b-medium
@@ -752,6 +787,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gpt-oss-120b-medium"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
 
   # ============ Primary orchestrator (subscription CLI) ============
@@ -796,6 +834,11 @@ agents:
         effort_levels: [low, medium, high, xhigh]
         effort_flag: "-c model_reasoning_effort={level}"
         effort_verified: validated
+      # `--sandbox read-only` is Codex's own OS-level sandbox policy (seatbelt/
+      # landlock), not a prompt-level restriction — see `codex exec --help`:
+      # "[possible values: read-only, workspace-write, danger-full-access]".
+      # Verified with `external-agents verify-read-only codex`.
+      read_only: "codex exec --skip-git-repo-check --sandbox read-only"
 
   - id: codex-gpt-5.4-mini
     provider: openai
@@ -817,6 +860,10 @@ agents:
         effort_levels: [low, medium, high, xhigh]
         effort_flag: "-c model_reasoning_effort={level}"
         effort_verified: validated
+      # See codex's read_only entry above for why --sandbox read-only is
+      # trustworthy here. Verified with
+      # `external-agents verify-read-only codex-gpt-5.4-mini`.
+      read_only: "codex exec --skip-git-repo-check -m gpt-5.4-mini --sandbox read-only"
 
   # Claude family — subscription-backed. All non-Fable Claude 5 / Opus 4.x
   # models. `claude-opus-4-8` is the newest strong; `claude-haiku-4-5` is
