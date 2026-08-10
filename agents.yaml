@@ -626,17 +626,40 @@ agents:
       # Verified with `external-agents verify-read-only cursor-agent`.
       read_only: "cursor-agent -p --output-format text --mode plan --trust"
 
+  # opencode is an AGENT, not a quota bucket. Without `opencode auth login` it
+  # has no credential store of its own — it reads the provider env vars we
+  # already set (`opencode auth list` shows GROQ / OPENROUTER / CEREBRAS /
+  # GEMINI). `provider:` and `auth:` therefore name the bucket this entry
+  # actually spends, so `pick`'s min_distinct_providers does not hand a caller
+  # this entry AND openrouter-* as two independent workers that exhaust
+  # together. If the operator ever runs `opencode auth login`, its hosted
+  # routing becomes a genuinely separate bucket and this flips back to
+  # `provider: sst` / `auth: cli:opencode`.
+  #
+  # Why OpenRouter and not one of the other keys it can see:
+  #   groq     — opencode's own harness costs ~17-32k tokens per request
+  #              (measured); the free tier caps at 8000 TPM, so every call dies
+  #              with `Request too large` before the model is reached.
+  #   cerebras — `Payment required to access this resource`.
+  #   google   — the Vercel AI SDK provider wants GOOGLE_GENERATIVE_AI_API_KEY
+  #              specifically; our key lives in GEMINI_API_KEY and the registry
+  #              has no way to bind one env name to another.
+  # A model MUST be pinned: with no `-m`, opencode 1.x defaults to
+  # `gemini-3-pro-image-preview` and every dispatch dies on the missing Google
+  # key above.
   - id: opencode
-    provider: sst
-    model: default
+    provider: openrouter
+    model: nvidia/nemotron-3-super-120b-a12b:free
+    quota_scope: shared
     tier: weak
-    tags: [agentic]
-    auth: "cli:opencode"
+    tags: [agentic, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/activity"
     signup_url: "https://opencode.ai"
     docs_url: "https://opencode.ai/docs"
     free_tier:
-      description: "opencode is a free, open-source CLI. Its hosted model routing needs an opencode account and is free up to a limited allowance before you connect your own provider keys or a paid plan."
-      limits: "Hosted routing without your own provider keys is capped; connecting your own API keys removes the cap."
+      description: "opencode is a free, open-source CLI. It is billed through whichever provider key it is pointed at — here OpenRouter's free tier — unless the operator connects opencode's own hosted routing with `opencode auth login`."
+      limits: "Inherits the pinned provider's limits. OpenRouter free models are capped per day across the whole key, and opencode's agent harness spends 20-40x more tokens per task than a plain completion."
       card_required: false
     transports:
       # opencode 1.x, NOT the `opencode -p` of the abandoned pre-1.0 Go CLI that
@@ -655,14 +678,14 @@ agents:
       # the correct, visible outcome, not something to paper over with a
       # borrowed provider in the operator's global opencode config.
       edit_exists:
-        cmd: "opencode run --auto"
+        cmd: "opencode run --auto -m openrouter/nvidia/nemotron-3-super-120b-a12b:free"
         cwd_flag: "--dir {cwd}"
       # `--agent plan` is opencode's own read-only agent. Do NOT substitute
       # `permission: {edit: deny, ...}` in the config for this: with --auto that
       # combination HANGS indefinitely in non-interactive mode (reproduced on
       # 1.18.16 against two separate providers, 100s/150s/300s, no output).
       read_only:
-        cmd: "opencode run --auto --agent plan"
+        cmd: "opencode run --auto --agent plan -m openrouter/nvidia/nemotron-3-super-120b-a12b:free"
         cwd_flag: "--dir {cwd}"
 
   # Kiro CLI (AWS Kiro Studio's headless chat mode). The trust list must cover
