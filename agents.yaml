@@ -643,10 +643,17 @@ agents:
       # used to shadow this name (that project is now Charm's `crush`). On 1.x
       # `-p` is `--password`, so the old command printed the help banner and
       # exited 0 — work silently never done.
-      # No model is pinned: opencode resolves `-m provider/model` or the
-      # operator's own default. It has no credential store of its own here
-      # (`opencode auth list` → 0 credentials), so a usable default must come
-      # from ~/.config/opencode/opencode.json or a provider env var.
+      # No model is pinned, on purpose. This entry's whole reason to exist is
+      # that `cli:opencode` is an auth surface — and therefore a quota bucket —
+      # that no other entry uses. Pinning it at a model another entry already
+      # covers (an Ollama Cloud model, an OpenRouter free model) would make it a
+      # second name for that bucket, and `pick`'s min_distinct_providers would
+      # hand a caller two "diverse" workers that exhaust together.
+      # It follows that the entry is only usable once opencode has its own
+      # credential: `opencode auth login`. Until then `opencode auth list`
+      # reports 0 credentials and dispatch fails at model resolution — which is
+      # the correct, visible outcome, not something to paper over with a
+      # borrowed provider in the operator's global opencode config.
       edit_exists:
         cmd: "opencode run --auto"
         cwd_flag: "--dir {cwd}"
