@@ -639,7 +639,24 @@ agents:
       limits: "Hosted routing without your own provider keys is capped; connecting your own API keys removes the cap."
       card_required: false
     transports:
-      edit_exists: "opencode -p"
+      # opencode 1.x, NOT the `opencode -p` of the abandoned pre-1.0 Go CLI that
+      # used to shadow this name (that project is now Charm's `crush`). On 1.x
+      # `-p` is `--password`, so the old command printed the help banner and
+      # exited 0 — work silently never done.
+      # No model is pinned: opencode resolves `-m provider/model` or the
+      # operator's own default. It has no credential store of its own here
+      # (`opencode auth list` → 0 credentials), so a usable default must come
+      # from ~/.config/opencode/opencode.json or a provider env var.
+      edit_exists:
+        cmd: "opencode run --auto"
+        cwd_flag: "--dir {cwd}"
+      # `--agent plan` is opencode's own read-only agent. Do NOT substitute
+      # `permission: {edit: deny, ...}` in the config for this: with --auto that
+      # combination HANGS indefinitely in non-interactive mode (reproduced on
+      # 1.18.16 against two separate providers, 100s/150s/300s, no output).
+      read_only:
+        cmd: "opencode run --auto --agent plan"
+        cwd_flag: "--dir {cwd}"
 
   # Kiro CLI (AWS Kiro Studio's headless chat mode). The trust list must cover
   # every tool the transport promises: `edit_exists` means "edits files in
