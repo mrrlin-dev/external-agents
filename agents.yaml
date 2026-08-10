@@ -106,6 +106,8 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model gemini/gemini-3.6-flash"
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
@@ -132,6 +134,8 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model gemini/gemini-3.1-pro-preview"
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
@@ -211,6 +215,8 @@ agents:
       limits: "No free quota; usage is billed per token against the account balance."
       card_required: true
     transports:
+      edit_exists:
+        cmd: "aider --model deepseek/deepseek-v4-flash"
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
         env: DEEPSEEK_API_KEY
@@ -233,6 +239,8 @@ agents:
       limits: "No free quota; usage is billed per token against the account balance."
       card_required: true
     transports:
+      edit_exists:
+        cmd: "aider --model deepseek/deepseek-v4-pro"
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
         env: DEEPSEEK_API_KEY
@@ -263,6 +271,8 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model groq/llama-3.3-70b-versatile"
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -282,6 +292,8 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model groq/openai/gpt-oss-120b"
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -304,6 +316,8 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model groq/openai/gpt-oss-20b"
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -326,6 +340,8 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model groq/llama-3.1-8b-instant"
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -349,6 +365,8 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -371,6 +389,8 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free"
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -393,6 +413,8 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/google/gemma-4-31b-it:free"
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -419,6 +441,8 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/openai/gpt-oss-20b:free"
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -441,6 +465,8 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/cohere/north-mini-code:free"
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -463,6 +489,10 @@ agents:
     tier: weak
     tags: [quick, free]
     auth: "cli:ollama"
+    # aider reaches the same local Ollama endpoint the generate_new url uses,
+    # but reads it from OLLAMA_API_BASE rather than a per-transport url.
+    env:
+      OLLAMA_API_BASE: "http://localhost:11434"
     preference_order: 20
     usage_url: "https://ollama.com/settings/keys"
     signup_url: "https://ollama.com/settings/keys"
@@ -472,6 +502,8 @@ agents:
       limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model ollama_chat/gpt-oss:20b-cloud"
       generate_new:
         url: "http://localhost:11434/v1/chat/completions"
         env: OLLAMA_UNUSED_KEY        # Ollama daemon needs no key; env var is dummy
@@ -486,6 +518,10 @@ agents:
     tier: strong
     tags: [quick, free]
     auth: "cli:ollama"
+    # aider reaches the same local Ollama endpoint the generate_new url uses,
+    # but reads it from OLLAMA_API_BASE rather than a per-transport url.
+    env:
+      OLLAMA_API_BASE: "http://localhost:11434"
     usage_url: "https://ollama.com/settings/keys"
     signup_url: "https://ollama.com/settings/keys"
     docs_url: "https://docs.ollama.com/cloud"
@@ -494,6 +530,8 @@ agents:
       limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model ollama_chat/gpt-oss:120b-cloud"
       generate_new:
         url: "http://localhost:11434/v1/chat/completions"
         env: OLLAMA_UNUSED_KEY

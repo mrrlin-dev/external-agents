@@ -4,6 +4,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-08-10
+
+### Added
+
+- Verified `read_only` transports for the 14 entries that previously declared only a write-capable `edit_exists`: `cursor-agent` and all 11 `agy-*` entries via their own `--mode plan`, `codex` and `codex-gpt-5.4-mini` via `--sandbox read-only`. Each was checked individually with `external-agents verify-read-only`. `opencode` is still uncovered — the binary on the test machine does not match the CLI its registry entry documents, so no `read_only` command could be written honestly.
+- `edit_exists` is back on the 15 HTTP-only entries where it can be routed through `aider` (Google, DeepSeek, Groq, OpenRouter, Ollama Cloud). Live-verified end to end on one entry per provider bucket. The two `google2` entries are deliberately excluded: aider reads `GEMINI_API_KEY`, and the registry has no way to bind that name to the second key's `GEMINI_API_KEY_2`.
+
+### Fixed
+
+- The aider lane works again, and 0.33.4's blanket migration error is gone. It never failed because of aider: the old command passed `--no-git` and attached no files, so aider opened with an empty chat and the model could only ask for the file contents back — every such dispatch exited 0 having changed nothing. The prompt was also appended as a positional, which aider reads as a *filename*. Prompts now go through `--message`, `--file` paths are attached as the files aider may edit, and `--no-git` is gone.
+- A dispatched aider no longer dirties the caller's worktree. It used to append `.aider*` to the repo's `.gitignore` and leave `.aider.chat.history.md`, `.aider.input.history` and `.aider.tags.cache.v4/` behind — a worktree the caller is required to hand back clean. History files are redirected to a temp dir and `--no-gitignore` / `--map-tokens 0` suppress the rest.
+- A dispatched aider no longer opens browser tabs on the operator's desktop. `offer_url` asks "Open documentation url for more info?" on a quota error, a model warning or a version bump, and `--yes-always` answered *yes*. `--no-show-release-notes` and `--no-detect-urls` remove the prompts; `BROWSER=true` in the child env neutralises any remaining `webbrowser.open`.
+- aider exits 0 even when the provider call failed outright — a Gemini 429 printed `litellm.RateLimitError` and still reported `outcome: success`. A run that changed no file *and* printed a provider error is now re-coded as a failure, so the existing classifier can see it (that dispatch now reports `quota_exhausted`). A zero-diff run with no error is still a success: answering a question without editing is legitimate.
+
 ## [0.36.0] - 2026-08-09
 
 ### Added

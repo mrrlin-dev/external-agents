@@ -6,14 +6,14 @@ This guide walks you through registering a new LLM provider or model in the `age
 
 Before starting, ensure your local environment is set up for the transport you plan to use:
 
-- **For `edit_exists`**: Install and authenticate the direct agent CLI you want to use (for example, Codex or Claude). The CLI runs in the supplied `cwd`, so it can inspect, edit, and test the project itself.
+- **For `edit_exists`**: Install and authenticate the direct agent CLI you want to use (for example, Codex or Claude). The CLI runs in the supplied `cwd`, so it can inspect, edit, and test the project itself. A provider that has no CLI of its own can route through `aider` instead — see [Routing an API-key provider through `aider`](#routing-an-api-key-provider-through-aider).
 - **For `generate_new`**: No external CLI is needed. This transport runs a direct, lightweight HTTPS request to an OpenAI-compatible completions endpoint.
 
 ## Step 1: Find the provider's endpoint / prefix
 
 To configure the model, you need to identify its identifier and connection strings depending on the target transport:
 
-- **For `edit_exists`**: Verify the CLI's non-interactive command and authentication flow. The command must accept the task prompt as its final positional argument.
+- **For `edit_exists`**: Verify the CLI's non-interactive command and authentication flow. The command must accept the task prompt as its final positional argument (`aider` is the one exception — it takes `--message`, and the dispatcher supplies it).
 - **For `generate_new`**: Locate the provider's OpenAI-compatible base URL in their developer docs. For example, DeepSeek uses `https://api.deepseek.com/v1/chat/completions`. Note down the exact model ID (e.g., `deepseek-chat`).
 
 ## Step 2: Add a registry entry to agents.yaml
@@ -134,7 +134,36 @@ Rules:
 
 Use `edit_exists` with a direct CLI for codebase edits, tests, and iterative work. Use `generate_new` for fast, single-shot text generation. Attach `files` for `generate_new`, which has no filesystem access; they are optional for `edit_exists` when a `cwd` is supplied.
 
-The bundled API-provider entries are intentionally generation-only. For an edit, select a bundled direct-CLI entry such as `codex` or `claude-opus-4-8`, or filter `pick_agents` by `transport: "edit_exists"`.
+### Routing an API-key provider through `aider`
+
+A provider that only offers an HTTP endpoint has no CLI of its own, so its
+`edit_exists` runs through [`aider`](https://aider.chat), which reaches ~100
+providers directly via LiteLLM:
+
+```yaml
+    edit_exists:
+      cmd: "aider --model groq/openai/gpt-oss-20b"
+```
+
+The model id is aider's LiteLLM id (`gemini/…`, `groq/…`, `openrouter/…`,
+`deepseek/…`, `ollama_chat/…`), which is *not* always the same string as the
+`generate_new` `model:` field. aider reads the provider's conventional env var
+(`GROQ_API_KEY`, `OPENROUTER_API_KEY`, …); if your entry authenticates with a
+differently-named variable, aider cannot see it and the entry should stay
+generation-only.
+
+Two things this transport does differently, both handled by the dispatcher —
+do not re-add them to `cmd`:
+
+- **Prompts go through `--message`.** aider reads a positional argument as a
+  *filename*, so the usual "prompt as final positional" rule is inverted here.
+- **`--file` paths are attached to the aider chat.** aider has no search tool:
+  a file that is not in the chat is invisible to it, and it will write a new
+  file rather than edit the existing one. Always pass `--file` for an aider
+  dispatch, and prefer naming the exact files over hoping it finds them.
+
+aider has no read-only mode; requesting `read_only` on an aider entry is an
+error rather than a silent downgrade.
 
 ## Declaring `read_only` (for dispatches that must not write)
 
