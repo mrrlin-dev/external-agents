@@ -189,11 +189,37 @@ unverified `read_only` command is the same failure class this axis exists to
 catch (see `kiro`'s incident: `edit_exists` trusting only a read-capable tool
 silently degraded to printing patches as prose instead of erroring).
 
-`generate_new` entries need no `read_only` declaration — an HTTP completion
-call has no filesystem access at all, so it satisfies a `transport: "read_only"`
-request as-is. An `edit_exists`-only entry with no declared `read_only` command
-does NOT satisfy that request; `pick`/`dispatch --transport read_only` error
-rather than silently falling back to the write-capable command.
+### An HTTP-only entry declares `via: generate_new`
+
+An entry with no CLI of its own still has a non-writing path — its own HTTP
+transport. Declare it, rather than leaving it implied:
+
+```yaml
+transports:
+  generate_new:
+    url: "https://api.example.com/v1/chat/completions"
+    env: EXAMPLE_API_KEY
+    model: example-1
+  read_only:
+    via: generate_new
+    verified: by_construction
+```
+
+An OpenAI-compatible completion call holds no filesystem handle of any kind, so
+there is nothing for a canary probe to exercise — `verify-read-only` returns
+`{verified: true, basis: "by_construction"}` for this form without dispatching.
+
+Every `read_only` block must give **exactly one** of `cmd` or `via`, and `via`
+accepts only `generate_new`. Neither, both, or `via: edit_exists` fails at
+registry load: `via: edit_exists` is precisely the write-capable fallback this
+axis exists to prevent.
+
+**There is no implicit fallback.** A `generate_new` entry without a `read_only`
+block does NOT satisfy `transport: "read_only"` — it used to, which was
+correct but unauditable, because an entry nobody had considered was
+indistinguishable from one deliberately cleared for read-only use.
+`pick`/`dispatch --transport read_only` error on any entry that does not
+declare the capability, and never fall back to a write-capable command.
 
 ## Common gotchas
 

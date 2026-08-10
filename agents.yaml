@@ -36,11 +36,26 @@
 #   transports.read_only     — same direct-CLI spawn as edit_exists, but the
 #     command is the CLI's no-write invocation (a distinct trust list / sandbox
 #     flag / disallowed-tools set, NOT the edit_exists cmd with a hopeful
-#     instruction appended). Requesting `read_only` on an entry that declares
-#     neither `read_only` nor `generate_new` is a hard error — it never falls
-#     back to a write-capable command. `generate_new` entries satisfy a
-#     read_only request without declaring anything: an HTTP completion call
-#     has no filesystem access at all, so it is read-only by construction.
+#     instruction appended). Requesting `read_only` on an entry that does not
+#     declare it is a hard error — it never falls back to a write-capable
+#     command.
+#     EVERY read_only block is explicit, and says HOW it is non-writing in
+#     exactly one of two ways — the loader rejects an entry that gives neither
+#     or both:
+#       cmd: "<cli> <no-write invocation>"   — proven per-entry against a
+#         canary by `external-agents verify-read-only <id>`.
+#       via: generate_new                    — the entry has no CLI at all, so
+#         its read-only role is served by its own HTTP transport. An OpenAI-
+#         compatible completion call holds no filesystem handle of any kind,
+#         so there is nothing to prove with a canary; `verified:
+#         by_construction` records that basis, and verify-read-only returns it
+#         rather than running a probe. `via` accepts ONLY generate_new —
+#         pointing it at edit_exists is the write-capable fallback this axis
+#         exists to prevent, and is rejected at load.
+#     This used to be implicit: an entry with a generate_new transport and no
+#     read_only block silently satisfied a read_only request. That worked, but
+#     it made coverage unauditable — you could not tell a deliberately
+#     read-only-capable entry from one nobody had considered.
 #     A `read_only` cmd must be verified with `external-agents verify-read-only
 #     <id>` (runs it against a canary file and confirms the file is
 #     unchanged) before it is trusted — a command whose FLAGS merely look
@@ -108,6 +123,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model gemini/gemini-3.6-flash"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
@@ -136,6 +154,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model gemini/gemini-3.1-pro-preview"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
@@ -169,6 +190,9 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY_2
@@ -190,6 +214,9 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY_2
@@ -217,6 +244,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model deepseek/deepseek-v4-flash"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
         env: DEEPSEEK_API_KEY
@@ -241,6 +271,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model deepseek/deepseek-v4-pro"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
         env: DEEPSEEK_API_KEY
@@ -273,6 +306,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model groq/llama-3.3-70b-versatile"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -294,6 +330,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model groq/openai/gpt-oss-120b"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -318,6 +357,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model groq/openai/gpt-oss-20b"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -342,6 +384,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model groq/llama-3.1-8b-instant"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -367,6 +412,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -391,6 +439,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -415,6 +466,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model openrouter/google/gemma-4-31b-it:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -443,6 +497,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model openrouter/openai/gpt-oss-20b:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -467,6 +524,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model openrouter/cohere/north-mini-code:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -504,6 +564,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model ollama_chat/gpt-oss:20b-cloud"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "http://localhost:11434/v1/chat/completions"
         env: OLLAMA_UNUSED_KEY        # Ollama daemon needs no key; env var is dummy
@@ -532,6 +595,9 @@ agents:
     transports:
       edit_exists:
         cmd: "aider --model ollama_chat/gpt-oss:120b-cloud"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "http://localhost:11434/v1/chat/completions"
         env: OLLAMA_UNUSED_KEY

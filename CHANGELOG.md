@@ -4,7 +4,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
-## [0.37.0] - 2026-08-10
+## [0.38.0] - 2026-08-10
+
+### Changed
+
+- **Every `read_only` capability is now declared explicitly.** An entry with a `generate_new` transport used to satisfy a `read_only` request without declaring anything — true (an HTTP completion call holds no filesystem handle) but unauditable: an entry nobody had considered looked exactly like one deliberately cleared for read-only use. The 17 HTTP-only entries now carry `read_only: { via: generate_new, verified: by_construction }`, and the implicit fallback is gone — requesting `read_only` on an entry that does not declare it is an error. **This is a breaking change for a caller that relied on the implicit fallback for a hand-authored `agents.local.yaml` entry**; add the block above to it.
+- A `read_only` block must declare exactly one of `cmd` (a distinct no-write CLI invocation, proven per-entry by `verify-read-only` against a canary) or `via: generate_new`. Neither, both, or `via` pointing at any other transport is rejected at registry load rather than at dispatch time — `via: edit_exists` in particular is the write-capable fallback this axis exists to prevent.
+- `verify-read-only` returns `{verified: true, basis: "by_construction"}` for a `via: generate_new` entry without running a canary probe. There is no filesystem handle to exercise, so a probe would prove nothing the transport's shape does not already.
 
 ### Added
 
