@@ -4,6 +4,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.38.2] - 2026-08-11
+
+### Fixed
+
+- `auditCliEntry`'s health-check timeout was a hardcoded 20s SIGKILL, and that turned out to be the real cause of most of the `opencode` flakiness the previous fix (0.38.1's model pin) didn't fully explain. Measured cold-start latency for `opencode run --auto` on this machine ranged **7s–62s across five back-to-back calls with nothing else changed** — no model swap, no network hiccup, just CLI startup variance. At 20s that's a coin-flip SIGKILL mid-reply: stdout comes back empty and the dashboard reports `errored_transient` for an agent that would have answered fine given a few more seconds. Raised to 90s — comfortably past the observed worst case, still well under `runDispatch`'s real-dispatch timeout (500s default) so a probe fails faster than an actual task. A killed-by-timeout run is now also reported distinctly (`"timed out after Ns waiting for a reply"`) instead of looking identical to an empty response for an unrelated reason.
+- Retracted an overclaimed comparison from 0.38.1: the "5/5 clean vs. 2/8 empty" reliability difference cited between `deepseek-v4-flash-free` and `big-pickle` was confounded by inconsistent `timeout N` values used across separate manual test runs, not a real measured quality gap — exactly the kind of variance the fix above explains. The registry comment on `opencode` now says so plainly rather than repeating the retracted number. The model pin itself stands: `nemotron-3-ultra-free` is still excluded on its own separate, real defect (it leaked chain-of-thought text into replies meant to be plain answers), and there's no evidence `deepseek-v4-flash-free` is worse than `big-pickle`.
+- Re-verified with the fix in place: `audit --provider sst` now reports `healthy` on 3 of 3 runs (was flapping before), each between 38s and 87s — consistent with the newly-understood latency range, not with a broken agent.
+
 ## [0.38.1] - 2026-08-11
 
 ### Fixed

@@ -671,13 +671,16 @@ agents:
   # smaller, cheaper version of this entry, it is a different and less
   # reliable one.
   #
-  # `deepseek-v4-flash-free`, not `big-pickle`, despite both being Zen models
-  # with no auth requirement either way: 5/5 clean replies to a trivial "reply
-  # exactly OK" probe, vs. 2 empty responses out of 8 for big-pickle and worse
-  # for nemotron-3-ultra-free (also leaked chain-of-thought text into the
-  # reply). Zen's free tier is rate-limited per-model, and this was clearly the
-  # least flaky model reachable through it at measurement time — re-check if
-  # `verify-read-only opencode` or the UI's audit starts flapping again.
+  # `deepseek-v4-flash-free`, not `big-pickle`: both need no auth, but
+  # nemotron-3-ultra-free is out outright — it leaked chain-of-thought text
+  # into replies meant to be plain answers, a correctness problem no timeout
+  # budget fixes. big-pickle vs deepseek-v4-flash-free is a closer call; an
+  # early A/B favoring deepseek turned out to be confounded by inconsistent
+  # ad-hoc timeouts in manual testing, not a real quality difference — see the
+  # note on auditCliEntry's 90s timeout below, which is the actual fix for the
+  # "sometimes empty reply" symptom. deepseek-v4-flash-free is kept as the
+  # pin anyway (no evidence it's worse, and it's a known-good coding model),
+  # but don't cite the retracted 5/5-vs-2/8 comparison as a reason.
   - id: opencode
     provider: sst
     model: opencode/deepseek-v4-flash-free
