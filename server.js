@@ -103,6 +103,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "FAMILY: google3 and google4 are two API keys for one source, not two opinions. A model is " +
           "never seated twice while an unseated one is available, so a panel gets distinct voices " +
           "rather than clones of one model. " +
+          "Exclusion uses the same identity: filter.exclude_ids drops every entry serving the same " +
+          "model as each named id (excluding gemini-3.6-flash-6 will NOT seat gemini-3.6-flash-5 " +
+          "instead), and filter.exclude_providers matches by family, so 'google' covers google3..8. " +
           "\n\nROUTING NOTE: default filter is tier='weak' — that is intentional. Most atomic tasks " +
           "(single-file edits, refactors, glue code, summaries, format conversions, well-scoped fixes) " +
           "get the same quality answer from a weak-tier free-tier model as from Claude Opus or " +
@@ -120,6 +123,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 tier: { type: "string" },
                 tags: { type: "array", items: { type: "string" } },
                 exclude_ids: { type: "array", items: { type: "string" } },
+                exclude_providers: { type: "array", items: { type: "string" } },
               },
             },
             min_distinct_providers: { type: "integer", minimum: 1 },

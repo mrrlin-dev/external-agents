@@ -5,6 +5,9 @@
 //
 // Subcommands:
 //   pick [--tier T] [--n N] [--min-distinct-providers M] [--exclude ID,ID] [--exclude-providers P,P]
+//        (--exclude and --exclude-providers both cascade to every API-key clone:
+//         excluding one id drops every entry serving the same model, and a
+//         provider is matched by family, so `google` covers google3..google8)
 //     → prints one agent id per line (up to N), or exits 3 if no candidates
 //   dispatch <agent-id> [--pro] "<prompt>"
 //     → runs the agent, prints stdout of the child, exits with:
@@ -18,7 +21,7 @@ import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.j
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential } from "./lib/state.js";
 import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting } from "./lib/dispatch.js";
-import { pickAgents } from "./lib/pick.js";
+import { pickAgents, providerFamily } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
@@ -83,9 +86,11 @@ function cmdPick(flags) {
   if (flags.tags) baseFilter.tags = String(flags.tags).split(",").filter(Boolean);
   if (flags.exclude) baseFilter.exclude_ids = String(flags.exclude).split(",").filter(Boolean);
   if (flags["exclude-providers"]) {
-    const providers = new Set(String(flags["exclude-providers"]).split(",").filter(Boolean));
-    const ids = REGISTRY.agents.filter((a) => providers.has(a.provider)).map((a) => a.id);
-    baseFilter.exclude_ids = [...(baseFilter.exclude_ids || []), ...ids];
+    // Passed through rather than expanded to ids here: pickAgents matches by
+    // provider FAMILY, so `--exclude-providers google` covers google3..google8.
+    // Expanding by exact slug in the CLI is what let a numbered clone through,
+    // and it also left the MCP path (which never saw this flag) unprotected.
+    baseFilter.exclude_providers = String(flags["exclude-providers"]).split(",").filter(Boolean);
   }
   if (flags.transport) baseFilter.transport = flags.transport;
   if (flags.effort) {
@@ -111,17 +116,21 @@ function cmdPick(flags) {
     let out = [...primary];
     if (out.length < n) {
       // Backfill from the other tier, excluding already-picked ids AND their
-      // providers so the panel stays provider-diverse.
-      const usedProviders = new Set(primary.map((id) => findAgent(id)?.provider).filter(Boolean));
-      const backfillExclude = [
-        ...(baseFilter.exclude_ids || []),
-        ...primary,
-        ...REGISTRY.agents.filter((a) => usedProviders.has(a.provider)).map((a) => a.id),
-      ];
-      const remainingDistinct = minDistinct != null ? Math.max(0, minDistinct - usedProviders.size) : undefined;
+      // providers so the panel stays provider-diverse. Both go through
+      // pickAgents' family matching: excluding the raw slug `google3` used to
+      // leave `google4` free to backfill the same model into the next slot.
+      const usedFamilies = new Set(
+        primary.map((id) => findAgent(id)?.provider).filter(Boolean).map(providerFamily),
+      );
+      const remainingDistinct = minDistinct != null ? Math.max(0, minDistinct - usedFamilies.size) : undefined;
       const backfill = pickAgents(REGISTRY, state, {
         n: n - out.length,
-        filter: { ...baseFilter, tier: other, exclude_ids: backfillExclude },
+        filter: {
+          ...baseFilter,
+          tier: other,
+          exclude_ids: [...(baseFilter.exclude_ids || []), ...primary],
+          exclude_providers: [...(baseFilter.exclude_providers || []), ...usedFamilies],
+        },
         min_distinct_providers: remainingDistinct,
       });
       out = [...out, ...backfill];
@@ -672,6 +681,8 @@ switch (subcmd) {
   case undefined:
     console.error(`external-agents CLI — subcommands:
   pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists|read_only] [--effort <level>]
+       (--exclude/--exclude-providers cascade to API-key clones: excluding one id drops every
+        entry serving the same model; providers match by family, so \`google\` covers google3..8)
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
   dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--file path[:lines]] "<prompt>"
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
