@@ -28,7 +28,7 @@ const REGISTRY = loadRegistry(path.join(path.dirname(new URL(import.meta.url).pa
 // Env-var boot injection lives in the shared credentials module (single source
 // of truth for CLI + MCP server + UI). Priority: keys.env → Kilo auth store →
 // llm keys. Never overrides an already-set env var.
-import { KEYS_FILE, loadKeysFile, persistCredential, bootEnv } from "./lib/credentials.js";
+import { KEYS_FILE, loadKeysFile, persistCredential, bootEnv, refreshEnv } from "./lib/credentials.js";
 bootEnv();
 
 function findAgent(id) {
@@ -197,6 +197,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name } = request.params;
+  // Keys added from a shell after this server booted are picked up per call,
+  // so `external-agents set-credential X` no longer strictly requires an MCP
+  // client restart to take effect.
+  refreshEnv();
 
   if (name === "ping") {
     return {

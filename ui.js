@@ -5,9 +5,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRegistry, LOCAL_PATH, CANONICAL_BASES, nextProviderSlot, withLocalOverlayLock } from "./lib/registry.js";
-import { readState, writeState, probeInstalled, deriveDisplayState } from "./lib/state.js";
+import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential } from "./lib/state.js";
 import { verifyCredential, getStats, auditCliEntry } from "./lib/dispatch.js";
-import { bootEnv } from "./lib/credentials.js";
+import { bootEnv, refreshEnv } from "./lib/credentials.js";
 // Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
 // before any probe/dispatch runs. Without this, /api/audit sees a blank env
 // and reports all API-key entries as needs_auth.
@@ -1560,6 +1560,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && p === "/api/state") {
+    // Pick up keys added from another shell since this process booted, so a
+    // `set-credential` in a terminal is reflected on the next poll instead of
+    // needing a UI restart.
+    refreshEnv();
     return json(res, 200, {
       schema_version: REGISTRY.schema_version,
       agents: stateRows(),
@@ -1632,6 +1636,12 @@ const server = http.createServer(async (req, res) => {
           }
         }
         if (Object.keys(patch).length > 0) writeState(patch);
+        // After the patch, not before: those writes replace each entry
+        // wholesale and would drop the `enabled` flag set here.
+        const enabledIds = enableAgentsAwaitingCredential(env_name, REGISTRY.agents);
+        if (enabledIds.length > 0) {
+          console.error(`external-agents ui: set_credential(${env_name}) enabled ${enabledIds.length} agent(s) that were off pending this key: ${enabledIds.join(", ")}`);
+        }
         const okCount = verifyResults.filter((v) => v.ok).length;
         const failCount = verifyResults.length - okCount;
         console.error(`external-agents ui: set_credential(${env_name}) — re-probed ${affected.length}, verified ${verifyResults.length} providers (${okCount} ok, ${failCount} failed): ${verifyResults.map((v) => v.provider + "=" + (v.ok ? "ok" : "FAIL:" + v.hint)).join(", ")}`);
@@ -1640,6 +1650,7 @@ const server = http.createServer(async (req, res) => {
           env_name,
           persisted_to: KEYS_FILE,
           reprobed: affected.map((a) => a.id),
+          enabled_ids: enabledIds,
           verified: verifyResults,
           restart_required: "Restart your MCP client (Claude Code / Codex) so IT reads keys.env too.",
         });
@@ -1812,16 +1823,43 @@ const server = http.createServer(async (req, res) => {
         const status = /^registry busy/.test(lockErr.message) ? 503 : 500;
         return json(res, status, { error: lockErr.message });
       }
+      // A numbered slug can also ship in the BUNDLED registry — `google2` is
+      // hand-authored there, so the overlay filter above removes nothing. Every
+      // key past the first is optional, though, so "remove" has to work for
+      // those too. We can't delete a line out of the bundled yaml, so use the
+      // kill switch state.json already provides: disable each bundled entry
+      // under this slug. The env var is dropped either way, so the entries go
+      // needs_auth as well as disabled — re-adding the key through "+ Add
+      // another key" flips them back on.
+      let disabledIds = [];
       if (removedIds.length === 0) {
-        return json(res, 404, { error: `no removable entries for provider: ${provider_slug} — it may be bundled/hand-authored rather than created by "+ Add another key"` });
+        const bundled = REGISTRY.agents.filter((a) => a.provider === provider_slug);
+        if (bundled.length === 0) {
+          return json(res, 404, { error: `unknown provider: ${provider_slug}` });
+        }
+        const current = readState();
+        const patch = {};
+        for (const a of bundled) {
+          disabledIds.push(a.id);
+          patch[a.id] = { ...(current[a.id] || {}), enabled: false };
+          if (typeof a.auth === "string" && a.auth.startsWith("env:")) {
+            removedEnvNames.add(a.auth.slice("env:".length).split(/\s+/)[0]);
+          }
+        }
+        writeState(patch);
       }
       reloadRegistry();
       // Only drop the env var from keys.env once nothing in the registry
       // still references it — defensive; in practice a numbered slug's env
       // var is never shared with any other entry.
+      // A disabled-not-deleted entry still "references" its env var in the
+      // registry, so exclude the ones we just disabled — otherwise the key
+      // would survive the removal it was the whole point of.
+      const disabledSet = new Set(disabledIds);
       const stillReferenced = new Set(
         REGISTRY.agents
           .filter((a) => typeof a.auth === "string" && a.auth.startsWith("env:"))
+          .filter((a) => !disabledSet.has(a.id))
           .map((a) => a.auth.slice("env:".length).split(/\s+/)[0])
       );
       const persisted = loadKeysFile();
@@ -1834,8 +1872,8 @@ const server = http.createServer(async (req, res) => {
         }
       }
       if (keysChanged) saveKeysFile(persisted);
-      console.error(`external-agents ui: remove_provider_key ${provider_slug} (${removedIds.length} entries, env(s) ${[...removedEnvNames].join(",")})`);
-      return json(res, 200, { ok: true, provider_slug, removed_ids: removedIds });
+      console.error(`external-agents ui: remove_provider_key ${provider_slug} (${removedIds.length} removed, ${disabledIds.length} disabled, env(s) ${[...removedEnvNames].join(",")})`);
+      return json(res, 200, { ok: true, provider_slug, removed_ids: removedIds, disabled_ids: disabledIds });
     });
     return;
   }
@@ -1845,6 +1883,7 @@ const server = http.createServer(async (req, res) => {
     if (!id || typeof id !== "string") return json(res, 400, { error: "missing id" });
     const entry = findAgent(id);
     if (!entry) return json(res, 404, { error: `unknown agent: ${id}` });
+    refreshEnv();
     const result = probeInstalled(entry);
     const checked = Math.floor(Date.now() / 1000);
     writeState({ [id]: { ...result, checked } });
@@ -1982,10 +2021,18 @@ const server = http.createServer(async (req, res) => {
 // must stay unchanged.
 const MAX_PORT_ATTEMPTS = 10;
 function listenWithRetry(port) {
-  server.listen(port, HOST, () => {
+  // Both listeners must be torn down when the other one wins. `server.listen`'s
+  // callback form registers a PERSISTENT 'listening' listener that survives the
+  // failed attempt, so a retry chain accumulates one per attempt and they all
+  // fire on the bind that finally succeeds — printing a URL line for every port
+  // tried, including the ones that were in use. `cmdInit` in cli.js opens the
+  // FIRST such line it sees, which would be the stale port.
+  const onListening = () => {
+    server.off("error", onError);
     console.error(`external-agents ui: http://${HOST}:${port}`);
-  });
-  server.once("error", (err) => {
+  };
+  const onError = (err) => {
+    server.off("listening", onListening);
     if (err.code === "EADDRINUSE") {
       const attemptsSoFar = port - PORT;
       if (attemptsSoFar < MAX_PORT_ATTEMPTS) {
@@ -1999,6 +2046,9 @@ function listenWithRetry(port) {
       console.error(`external-agents ui: failed to listen on port ${port}: ${err.message}`);
     }
     process.exit(1);
-  });
+  };
+  server.once("listening", onListening);
+  server.once("error", onError);
+  server.listen(port, HOST);
 }
 listenWithRetry(PORT);

@@ -16,7 +16,7 @@
 //   probe <agent-id> → probes one agent, prints new state JSON
 import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.js";
 import yaml from "js-yaml";
-import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
+import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential } from "./lib/state.js";
 import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
@@ -398,8 +398,12 @@ async function cmdSetCredential(args) {
   try {
     const persistedTo = persistCredential(envName, value);
     const resetIds = resetCooldownsForEnvVar(envName, REGISTRY.agents);
+    const enabledIds = enableAgentsAwaitingCredential(envName, REGISTRY.agents);
     // Print to stderr so stdout stays clean for scripting; do NOT echo the value.
     console.error(`external-agents: ${envName} persisted to ${persistedTo}`);
+    if (enabledIds.length > 0) {
+      console.error(`  Enabled ${enabledIds.length} agent(s) that were off pending this key: ${enabledIds.join(", ")}`);
+    }
     if (resetIds.length > 0) {
       console.error(`  Cooldowns reset for ${resetIds.length} agent(s): ${resetIds.join(", ")}`);
     }
