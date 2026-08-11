@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.38.3] - 2026-08-11
+
+### Fixed
+
+- `external-agents set-credential <ENV_NAME>` hung forever after the value was typed. The interactive path read stdin until the `end` event — i.e. EOF — but a terminal never sends EOF on Enter, only `data`. The prompt appeared, the key was accepted, and then nothing happened until the user thought to press Ctrl-D, which reads as a broken command rather than a subtle stdin contract. On a TTY the first line is now taken via `readline` instead. The piped/redirected path still reads to EOF, so multi-line values and input without a trailing newline behave exactly as before.
+
 ## [0.38.2] - 2026-08-11
 
 ### Fixed
