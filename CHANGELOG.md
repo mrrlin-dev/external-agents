@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.39.1] - 2026-08-11
+
+### Changed
+
+- README rewritten for someone arriving at the package cold, and corrected — it had drifted through ten releases since it was last touched. It claimed 28 bundled agents (there are 42, 32 enabled by default), five Gemini variants plus two paid upgrades (eight and eight), and six OpenRouter `:free` models (five); it never mentioned Antigravity's five entries at all; it dated the Cerebras/Z.ai removals as "this release" when they were 0.13.0 and 0.22.0; and it linked a `CONTRIBUTING.md` that does not exist in the repo or the tarball, so the link 404'd. It also led with the registry rather than the question a new reader actually has — *what do I have to set up before any of this works?* — which is now its own section: nothing at all if you are logged into an agentic CLI, and one optional free-tier key per provider after that. Docs-only; no code changes.
+
 ## [0.39.0] - 2026-08-11
 
 ### Added
