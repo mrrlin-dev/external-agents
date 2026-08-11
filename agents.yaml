@@ -250,6 +250,11 @@ agents:
     quota_scope: shared
     tier: weak
     tags: [quick, cheap]
+    # Off until a key exists: DeepSeek is prepaid, so a fresh install with no
+    # DEEPSEEK_API_KEY would otherwise list an entry that can never answer.
+    # `set-credential DEEPSEEK_API_KEY` (CLI or UI) flips this on automatically.
+    enabled: false
+    enable_on_credential: true
     auth: "env:DEEPSEEK_API_KEY"
     preference_order: 10
     usage_url: "https://platform.deepseek.com/usage"
@@ -278,6 +283,11 @@ agents:
     quota_scope: shared
     tier: strong
     tags: [quick, reasoning, cheap]
+    # Off until a key exists: DeepSeek is prepaid, so a fresh install with no
+    # DEEPSEEK_API_KEY would otherwise list an entry that can never answer.
+    # `set-credential DEEPSEEK_API_KEY` (CLI or UI) flips this on automatically.
+    enabled: false
+    enable_on_credential: true
     auth: "env:DEEPSEEK_API_KEY"
     usage_url: "https://platform.deepseek.com/usage"
     signup_url: "https://platform.deepseek.com/api_keys"

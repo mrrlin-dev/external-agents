@@ -4,6 +4,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-08-11
+
+### Added
+
+- Registry entries can carry `enable_on_credential: true` alongside `enabled: false`. It distinguishes the two things a bundled `enabled: false` used to conflate: "paid, opt in deliberately" (`gemini-3.1-pro-preview-2`, unchanged) and "useless until a credential exists". Only the second kind is flipped on automatically when its key arrives, via the state.json layer `pick` already lets override a registry default.
+
+### Changed
+
+- **DeepSeek now ships disabled and turns itself on when a key is added.** Its API is prepaid, so a fresh install with no `DEEPSEEK_API_KEY` listed two entries that could never answer anything. `deepseek-chat` and `deepseek-reasoner` are now `enabled: false` + `enable_on_credential: true`; `set-credential DEEPSEEK_API_KEY` through either the CLI or the UI enables both and says so. Removing the key does not flip them back — that stays an explicit operator toggle.
+- Removing a numbered provider key no longer refuses when the slug is bundled. `google2` is hand-authored in `agents.yaml`, so the overlay-only removal path found nothing to delete and 404'd with "no removable entries" on a chip the UI itself had drawn an × on — but every key past the first is optional, so removal has to work there too. A bundled slug's entries are now disabled through the existing state.json kill switch and their env var dropped; re-adding the key through "+ Add another key" flips them back on. The response reports `disabled_ids` next to `removed_ids`.
+
+### Fixed
+
+- The UI and the MCP server picked up `keys.env` only at boot, so a key added afterwards from another shell left the dashboard insisting `env var DEEPSEEK_API_KEY not set` for an agent whose key was already on disk — with no hint that the fix was a restart. Both now re-read the store per request (`refreshEnv`), so a `set-credential` in a terminal shows up on the next poll. A value exported in the operator's own shell still wins, exactly as at boot.
+- `external-agents ui` printed a URL line for every port it tried, not just the one it bound: `server.listen(port, host, cb)` registers a PERSISTENT `listening` listener, so a retry chain accumulated one per attempt and they all fired on the bind that finally succeeded. With 4711 taken you got both `:4711` and `:4712` — and `cmdInit` opens the FIRST such line it sees, i.e. the port it had just failed to bind. Both listeners are now torn down per attempt.
+
 ## [0.38.3] - 2026-08-11
 
 ### Fixed
