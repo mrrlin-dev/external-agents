@@ -652,46 +652,59 @@ agents:
   # own. OpenRouter's key in particular exists for the five openrouter-* free
   # entries and nothing else. groq's 8000 TPM free cap rejects the harness
   # outright ("Request too large"); cerebras answers "Payment required".
-  # So this entry needs its OWN credential — `opencode auth login` — and until
-  # it has one it correctly reports needs_auth instead of borrowing someone
-  # else's quota.
+  # Pinned to OpenCode Zen's own free hosted model (`opencode/deepseek-v4-flash-free`), NOT
+  # to a provider key. Confirmed live with every provider env var this package
+  # sets (GROQ/OPENROUTER/CEREBRAS/GEMINI) unset AND `opencode auth list`
+  # reporting 0 credentials — Zen's free tier needs neither this package's
+  # keys nor `opencode auth login`. That makes this entry's quota bucket
+  # genuinely its own, unlike anything else in this registry.
+  #
+  # Pinning is NOT optional here — the alternative was tried and is worse than
+  # merely unusable. Bare `opencode run --auto` (no `-m`) does not fail closed;
+  # it round-robins across EVERY authenticated surface it can see, Zen and our
+  # provider env vars alike, with zero regard for task fit. Observed on this
+  # machine: `opencode/big-pickle` (a Zen model, works), then on the very next
+  # call Groq's `whisper-large-v3-turbo` — an audio-transcription model, not a
+  # chat model — picked for a plain text-edit prompt and failing outright
+  # ("does not support c[hat completions]"). That is exactly the 6-success/
+  # 2-fail flakiness this pin exists to remove; an unpinned run is not a
+  # smaller, cheaper version of this entry, it is a different and less
+  # reliable one.
+  #
+  # `deepseek-v4-flash-free`, not `big-pickle`, despite both being Zen models
+  # with no auth requirement either way: 5/5 clean replies to a trivial "reply
+  # exactly OK" probe, vs. 2 empty responses out of 8 for big-pickle and worse
+  # for nemotron-3-ultra-free (also leaked chain-of-thought text into the
+  # reply). Zen's free tier is rate-limited per-model, and this was clearly the
+  # least flaky model reachable through it at measurement time — re-check if
+  # `verify-read-only opencode` or the UI's audit starts flapping again.
   - id: opencode
     provider: sst
-    model: default
+    model: opencode/deepseek-v4-flash-free
     tier: weak
-    tags: [agentic]
+    tags: [agentic, free]
     auth: "cli:opencode"
+    usage_url: "https://opencode.ai/docs/zen/"
     signup_url: "https://opencode.ai"
     docs_url: "https://opencode.ai/docs"
     free_tier:
-      description: "opencode is a free, open-source CLI. Its hosted model routing needs an opencode account and is free up to a limited allowance before you connect your own provider keys or a paid plan."
-      limits: "Hosted routing without your own provider keys is capped; connecting your own API keys removes the cap."
+      description: "OpenCode Zen is opencode's own hosted model routing. Its `deepseek-v4-flash-free` model needs no account, no API key, and no `opencode auth login` — confirmed live with every credential this package sets unset. This entry is pinned to it specifically, both to keep dispatch from ever falling through to a provider key this package also uses for other entries, and because it was the most reliable free Zen model available at measurement time."
+      limits: "Per Zen's own docs (opencode.ai/docs/zen), this specific free model is 'available on OpenCode for a limited time' while the team collects feedback — it is promotional, not a permanent tier, and may require a real Zen API key (a paid, pay-as-you-go account) later. No numeric rate limit is published."
       card_required: false
     transports:
       # opencode 1.x, NOT the `opencode -p` of the abandoned pre-1.0 Go CLI that
       # used to shadow this name (that project is now Charm's `crush`). On 1.x
       # `-p` is `--password`, so the old command printed the help banner and
       # exited 0 — work silently never done.
-      # No model is pinned, on purpose. This entry's whole reason to exist is
-      # that `cli:opencode` is an auth surface — and therefore a quota bucket —
-      # that no other entry uses. Pinning it at a model another entry already
-      # covers (an Ollama Cloud model, an OpenRouter free model) would make it a
-      # second name for that bucket, and `pick`'s min_distinct_providers would
-      # hand a caller two "diverse" workers that exhaust together.
-      # It follows that the entry is only usable once opencode has its own
-      # credential: `opencode auth login`. Until then `opencode auth list`
-      # reports 0 credentials and dispatch fails at model resolution — which is
-      # the correct, visible outcome, not something to paper over with a
-      # borrowed provider in the operator's global opencode config.
       edit_exists:
-        cmd: "opencode run --auto"
+        cmd: "opencode run --auto -m opencode/deepseek-v4-flash-free"
         cwd_flag: "--dir {cwd}"
       # `--agent plan` is opencode's own read-only agent. Do NOT substitute
       # `permission: {edit: deny, ...}` in the config for this: with --auto that
       # combination HANGS indefinitely in non-interactive mode (reproduced on
       # 1.18.16 against two separate providers, 100s/150s/300s, no output).
       read_only:
-        cmd: "opencode run --auto --agent plan"
+        cmd: "opencode run --auto --agent plan -m opencode/deepseek-v4-flash-free"
         cwd_flag: "--dir {cwd}"
 
   # Kiro CLI (AWS Kiro Studio's headless chat mode). The trust list must cover

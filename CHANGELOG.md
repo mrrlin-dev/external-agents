@@ -4,12 +4,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-08-11
+
+### Fixed
+
+- `opencode` was unpinned entirely ("this entry's whole reason to exist is that `cli:opencode` is a separate auth surface, so don't borrow anyone else's"), which turned out worse than borrowing a bucket: bare `opencode run --auto` round-robins across EVERY authenticated surface it can see — OpenCode Zen and this package's own GROQ/OPENROUTER/CEREBRAS/GEMINI env vars alike — with zero regard for task fit. Observed live: `opencode/big-pickle` (a real Zen model, works), then on the very next call Groq's `whisper-large-v3-turbo` — an audio-transcription model — picked for a plain text-edit prompt and failing outright. That produced exactly the 6-success/2-fail flakiness an operator reported from the dashboard.
+- Now pinned to `opencode/deepseek-v4-flash-free`, an OpenCode Zen model confirmed live to need neither this package's keys nor `opencode auth login` — a genuinely independent quota bucket, not borrowed from anything else in the registry. Chosen over Zen's other no-auth free models by measurement: 5/5 clean replies to a trivial probe vs. 2/8 empty responses for `big-pickle` and worse for `nemotron-3-ultra-free` (which also leaked chain-of-thought text into replies meant to be plain answers). Per Zen's own docs this specific free model is promotional ("available for a limited time" while the team collects feedback), not a permanent tier — noted in the entry's `free_tier.limits` so it doesn't read as a stable guarantee.
+
 ## [0.38.0] - 2026-08-10
 
 ### Security
 
 - **`verify-read-only` was certifying commands that never ran.** Its only test was "is the canary unchanged?" — and a command that fails to start does not write either. `/bin/true` and a nonexistent binary both came back `verified: true`, and so did any real CLI that happened to be quota-gated, logged out, or uninstalled at verification time. That is a vacuous pass, exactly the unearned trust this axis was created to prevent. A probe now also requires the run to have completed successfully; when it did not, the result is `{verified: false, inconclusive: true}` with the agent's last output — a prompt to fix auth/quota and re-verify, not a claim that the command writes. Canary mutation is still checked first and outranks everything: a command that wrote and then failed is write-capable, not inconclusive.
-- Re-running every `cmd`-based `read_only` entry under the stricter probe: **3 verified (`claude-opus-4-8`, `claude-sonnet-5`, `claude-haiku-4-5`), 16 inconclusive.** The 11 `agy-*` entries, `cursor-agent`, `codex`, `codex-gpt-5.4-mini`, `kiro` and `opencode` are all quota-gated or unauthenticated right now, so none has been verified against a live run — including entries this release previously recorded as individually verified. Their commands are unchanged and still plausible; what was wrong is the claim that they were *proven*. Re-verification has to wait for quota resets (`kiro`: 1 Sept) and, for `opencode`, an `opencode auth login`.
+- Re-running every `cmd`-based `read_only` entry under the stricter probe: **3 verified (`claude-opus-4-8`, `claude-sonnet-5`, `claude-haiku-4-5`), 16 inconclusive.** The 11 `agy-*` entries, `cursor-agent`, `codex`, `codex-gpt-5.4-mini`, `kiro` and `opencode` are all quota-gated or unauthenticated right now, so none has been verified against a live run — including entries this release previously recorded as individually verified. Their commands are unchanged and still plausible; what was wrong is the claim that they were *proven*. Re-verification has to wait for quota resets (`kiro`: 1 Sept); `opencode` no longer needs a credential at all as of 0.38.1, below.
 
 ### Changed
 
