@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-08-11
+
+### Fixed
+
+- **Exclusion did not cascade to a model's other API keys, so keeping a model out of a panel was whack-a-mole.** `--exclude gemini-3.6-flash-6` seated `gemini-3.6-flash-5` instead, and `--exclude-providers google` seated one too, because the clones live under `google3`..`google8` and the flag matched the provider slug exactly. 0.41.0 fixed this identity confusion for *diversity* — a numbered slug is one KEY, not one SOURCE — but left exclusion counting keys. Both axes now use the same identity: an excluded id drops every entry serving the same model, and an excluded provider matches by FAMILY, so `google` covers every numbered key. Excluding a single key is deliberately not supported — a key that is rate-limited or out of quota is already skipped via state, which is the mechanism that belongs to keys.
+- The cascade does not over-reach: exclusion is keyed on family+model, so `--exclude groq-gpt-oss-20b` leaves `groq-gpt-oss-120b` eligible. Same provider, different model, still a distinct voice.
+- The `--tier-prefer` backfill excluded already-picked *providers* by raw slug, so a strong-tier `google3` pick could be followed by a weak-tier `google4` backfill of the same model — a panel that looked provider-diverse and was not. It now excludes by family.
+- `filter.exclude_ids` cascades inside `pickAgents`, so the MCP `pick_agents` tool gets the same behavior as the CLI; previously `--exclude-providers` was expanded to ids in `cli.js` and the MCP path had no equivalent at all. `pick_agents` also now accepts `filter.exclude_providers`, and its description states both cascade rules, since that description is what a model reads at runtime to decide how to fan out.
+
 ## [0.41.0] - 2026-08-11
 
 ### Fixed
