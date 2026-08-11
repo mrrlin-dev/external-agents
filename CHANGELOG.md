@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.39.2] - 2026-08-11
+
+### Fixed
+
+- **A probe silently reverted the operator kill switch, which 0.39.0 turned into a way to lose DeepSeek right after enabling it.** `writeState` merges per id by REPLACEMENT, and almost every caller builds its patch from a fresh observation — so `probe`, `audit`, a dashboard refresh, or any dispatch dropped whatever `enabled` the record was carrying. For an ordinary entry that was invisible, since absent means enabled. For an entry disabled in the registry it meant the opposite: `set-credential DEEPSEEK_API_KEY` turned both DeepSeek entries on, and the very next probe turned them back off. Reproduced on a clean HOME — `pick --tier strong` matched `deepseek-reasoner` before the probe and not after. `enabled` is the operator's decision, not an observation, so it now survives any write that does not name it explicitly; `/api/toggle` and the enable-on-credential path both still name it, and still win. One change covers every writeState call site, including the ones in `dispatch.js` that run on every call. Regression test added.
+
 ## [0.39.1] - 2026-08-11
 
 ### Changed
