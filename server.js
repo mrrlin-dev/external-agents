@@ -99,7 +99,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "pick_agents",
         description:
           "Pick up to N distinct healthy candidates by round-robin (preference_order + last_used_at). " +
-          "Optional min_distinct_providers enforces cross-provider diversity. " +
+          "Optional min_distinct_providers enforces cross-provider diversity, counted per provider " +
+          "FAMILY: google3 and google4 are two API keys for one source, not two opinions. A model is " +
+          "never seated twice while an unseated one is available, so a panel gets distinct voices " +
+          "rather than clones of one model. " +
           "\n\nROUTING NOTE: default filter is tier='weak' — that is intentional. Most atomic tasks " +
           "(single-file edits, refactors, glue code, summaries, format conversions, well-scoped fixes) " +
           "get the same quality answer from a weak-tier free-tier model as from Claude Opus or " +
