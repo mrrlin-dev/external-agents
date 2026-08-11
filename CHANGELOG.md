@@ -4,6 +4,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-08-11
+
+### Removed
+
+- **`google2` is no longer bundled.** It was hand-authored into `agents.yaml` back before `+ Add another key` existed, and it had two problems. It shipped one operator's second GCP project ("My Project 82450") into everyone's install, where the derived `GEMINI_API_KEY_2` means nothing. And it was the only numbered slug the UI could not undo: removal edits `agents.local.yaml`, there was nothing there to edit, so the × the dashboard itself drew on the chip could only ever 404 — the symptom 0.39.0 papered over by disabling those entries instead. Extra Google projects now come only from `+ Add another key` (or `add-model`), which writes them to the local overlay where removal genuinely deletes them. Bundled registry is 28 entries, 25 enabled by default. An operator who was relying on the bundled `google2` keeps working: `agents.local.yaml` overrides by id, and re-adding the key through the UI recreates the pair under the next free slug.
+
+### Fixed
+
+- `nextProviderSlot` would have named a fresh install's second Google key `google1`. With `google2` unbundled the only family match is the bare base slug (suffix 0), and a naive max+1 gave 1 — contradicting both the base slug and the `GEMINI_API_KEY_2` env var derived next to it. Floored at 2.
+- `gemini-3.1-pro-preview`'s `free_tier` block claimed a free tier with no card required, copied wholesale from the Flash entry, while the comment directly above it said Google had set Pro's free allowance to 0. The entry now says what is true: 0 free requests, billing required. It stays bundled and disabled so it can be opted into.
+- README claimed 42 bundled entries / 32 enabled. That count was taken from a machine with six locally-added Google keys in its overlay — a fresh install never had them. Now 28 / 25, with the Gemini row corrected from "×8 slots" to what actually ships.
+
 ## [0.39.2] - 2026-08-11
 
 ### Fixed

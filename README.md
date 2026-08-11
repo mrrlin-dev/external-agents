@@ -88,11 +88,11 @@ Everything is also available from the terminal — `external-agents pick`, `disp
 
 ## What's in the pool
 
-42 bundled entries, 32 enabled out of the box. The rest are paid upgrades that stay off until you explicitly opt in.
+28 bundled entries, 25 enabled out of the box. The rest are paid upgrades that stay off until you opt in.
 
 | Provider | Entries | What you need |
 |---|---|---|
-| **Google AI Studio** | Gemini 3.6 Flash ×8 slots, Gemini 3.1 Pro ×8 (off — paid) | `GEMINI_API_KEY`, free tier |
+| **Google AI Studio** | Gemini 3.6 Flash; Gemini 3.1 Pro (off — no free tier) | `GEMINI_API_KEY`, free tier |
 | **Groq** | Llama 3.3 70B, gpt-oss 120B, gpt-oss 20B, Llama 3.1 8B | `GROQ_API_KEY`, free tier |
 | **OpenRouter** | 5 `:free` models incl. Nemotron Ultra & Super, Gemma 4, gpt-oss 20B | `OPENROUTER_API_KEY`, free tier |
 | **Antigravity** | Gemini Flash/Pro, Claude Sonnet 4.6, Claude Opus 4.6, gpt-oss 120B | `agy` CLI, logged in |
@@ -102,7 +102,9 @@ Everything is also available from the terminal — `external-agents pick`, `disp
 | **DeepSeek** | v4-flash, v4-pro (both **off until you add a key**) | `DEEPSEEK_API_KEY`, prepaid |
 | **cursor-agent / opencode / kiro-cli** | one agentic CLI reviewer each | the respective CLI |
 
-Why eight Google slots: Google AI Studio can rate-limit an entire *project* at once, separately from each model's own per-minute limit — so a second project's key on the same account is a genuinely independent bucket. The dashboard's "+ Add another key" adds one whenever you have another to give it. One key is perfectly fine; the other seven slots just sit unused.
+Got a second Google project? Google AI Studio can rate-limit an entire *project* at once, separately from each model's own per-minute limit — so a second key from the same account is a genuinely independent bucket, not a retry of the first. The dashboard's "+ Add another key" clones the provider's models under a new slug (`google` → `google2` → `google3`…) and stores it in your local overlay, where it stays removable. The same applies to any key-based provider here.
+
+Google's strong-tier model is the one bundled entry that's off by default: Gemini 3.1 Pro has a free-tier allowance of zero, so reaching it at all needs billing enabled. It stays bundled so you can flip it on if that's what you want. If you want a strong model for free instead, the pool has nine — Nemotron Ultra and Super on OpenRouter, gpt-oss 120B on Groq and Ollama, and Claude Opus / Gemini Pro through Antigravity.
 
 DeepSeek ships disabled because its API is prepaid — with no key and no balance it can't answer anything, so it stays out of your pool until you add `DEEPSEEK_API_KEY`, at which point both entries turn themselves on.
 
