@@ -27,6 +27,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import readline from "node:readline";
 
 // CLI + MCP server share the same env-loading logic — see lib/credentials.js.
 // This ensures `external-agents set-credential FOO_KEY ...` followed by
@@ -376,16 +377,23 @@ async function cmdSetCredential(args) {
   }
   let value = valueArg;
   if (!value || value === "-") {
-    // Read from stdin. If a TTY, prompt on stderr.
+    // Read from stdin. Interactively a terminal never sends EOF after Enter —
+    // waiting for 'end' would hang until Ctrl-D — so on a TTY we take the first
+    // line. Piped/redirected input still reads to EOF (multi-line keys, no
+    // trailing newline, etc.).
     if (process.stdin.isTTY) {
       process.stderr.write(`Enter value for ${envName} (echoed): `);
+      const rl = readline.createInterface({ input: process.stdin });
+      value = await new Promise((resolve) => rl.once("line", resolve));
+      rl.close();
+    } else {
+      value = await new Promise((resolve) => {
+        let buf = "";
+        process.stdin.setEncoding("utf-8");
+        process.stdin.on("data", (chunk) => { buf += chunk; });
+        process.stdin.on("end", () => resolve(buf.replace(/\r?\n$/, "")));
+      });
     }
-    value = await new Promise((resolve) => {
-      let buf = "";
-      process.stdin.setEncoding("utf-8");
-      process.stdin.on("data", (chunk) => { buf += chunk; });
-      process.stdin.on("end", () => resolve(buf.replace(/\r?\n$/, "")));
-    });
   }
   try {
     const persistedTo = persistCredential(envName, value);
