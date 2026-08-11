@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-08-11
+
+### Fixed
+
+- **`min_distinct_providers` could be satisfied by four clones of one model.** A smoke test asking for 4 agents with `min_distinct_providers: 2` got `gemini-3.6-flash-3/4/7/8` — four API keys, one model, one opinion. That is a four-seat jury with a single voice, the exact failure a panel exists to prevent. The count was per raw provider slug, and a numbered slug is one KEY (a real, independent quota bucket, which is why dispatch spreads across them) rather than one SOURCE. Diversity is now counted per provider FAMILY (`google3`/`google4` → `google`), and no model is seated twice while an unseated one is still available. Quota spreading is untouched — that happens at dispatch, across the keys of whichever entry gets picked.
+- The same bug made raising the threshold useless as a workaround: the diversity guard only applied *while* fewer than `min_distinct_providers` had been seen, so every slot after the threshold was unconstrained. `min_distinct_providers: 3` returned a pick byte-identical to `2`. Both the family rule and the no-duplicate-model rule now apply to every slot.
+- `n` is honored again as a request for n agents. If the pool genuinely runs out of distinct models, the remaining slots are backfilled with duplicates in the same preference/least-recently-used order, rather than silently returning a shorter list.
+- `pick_agents`' MCP tool description said only "enforces cross-provider diversity", which is what a caller would reasonably read as "distinct models". It now states the family rule and the one-seat-per-model rule explicitly, since the description is what a model reads at runtime to decide how to fan out.
+
 ## [0.40.0] - 2026-08-11
 
 ### Removed
