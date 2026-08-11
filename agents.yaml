@@ -148,9 +148,9 @@ agents:
     signup_url: "https://aistudio.google.com/apikey"
     docs_url: "https://ai.google.dev/gemini-api/docs"
     free_tier:
-      description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
-      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
-      card_required: false
+      description: "Not on the free tier. The key itself is free to issue with no card, but Gemini Pro's free-tier allowance is 0 requests — reaching this model at all requires billing enabled on the project."
+      limits: "0 free requests. Paid usage is metered per token; see the usage console."
+      card_required: true
     transports:
       edit_exists:
         cmd: "aider --model gemini/gemini-3.1-pro-preview"
@@ -164,84 +164,20 @@ agents:
         effort_param: top_level
         effort_levels: [none, minimal, low, medium, high]
         effort_verified: validated
-  # ============ Google Gemini (AI Studio, second project) ============
-  # Same Google account, a DIFFERENT GCP project ("My Project 82450") and its
-  # own GEMINI_API_KEY_2. Added 2026-08-06 after the gemini-* entries above
-  # all went quota_exhausted at scattered times over ~1h (not one RPM burst),
-  # meaning "Default Gemini Project" hit a project-wide gate, not a per-model
-  # one — every model under that key/project fails together once it trips,
-  # regardless of that model's own RPM/RPD headroom. Verified live: the exact
-  # same gemini-3.5-flash call that 429'd on GEMINI_API_KEY returned 200 on
-  # this key. `provider: google2` (not `google`) so pick's
-  # min_distinct_providers diversity logic treats this as a genuinely
-  # separate source, matching reality.
-  - id: gemini-3.6-flash-2
-    provider: google2
-    model: gemini-3.6-flash
-    quota_scope: per_model
-    tier: weak
-    tags: [quick, free]
-    auth: "env:GEMINI_API_KEY_2"
-    preference_order: 10
-    usage_url: "https://aistudio.google.com/usage"
-    docs_url: "https://ai.google.dev/gemini-api/docs"
-    free_tier:
-      description: "Second Google AI Studio project/key on the same account, used as a fallback when the primary project's key hits its project-wide free-tier gate."
-      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
-      card_required: false
-    transports:
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3.6-flash"
-        # aider takes its key name from LiteLLM's fixed table and will only
-        # ever read GEMINI_API_KEY. This sibling's credential lives in
-        # GEMINI_API_KEY_2, so without the mapping it would silently
-        # authenticate as the FIRST Google key — the same quota this entry
-        # exists to be independent of.
-        env_from:
-          GEMINI_API_KEY: GEMINI_API_KEY_2
-      read_only:
-        via: generate_new
-        verified: by_construction
-      generate_new:
-        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        env: GEMINI_API_KEY_2
-        model: gemini-3.6-flash
-        effort_param: top_level
-        effort_levels: [none, minimal, low, medium, high]
-        effort_verified: validated
-  - id: gemini-3.1-pro-preview-2
-    provider: google2
-    model: gemini-3.1-pro-preview
-    quota_scope: per_model
-    tier: strong
-    tags: [quick, paid]
-    enabled: false
-    auth: "env:GEMINI_API_KEY_2"
-    docs_url: "https://ai.google.dev/gemini-api/docs"
-    free_tier:
-      description: "Second Google AI Studio project/key on the same account, used as a fallback when the primary project's key hits its project-wide free-tier gate. Pro is off the free tier here too (limit: 0) — kept disabled to mirror the primary key."
-      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
-      card_required: false
-    transports:
-      edit_exists:
-        cmd: "aider --model gemini/gemini-3.1-pro-preview"
-        # aider takes its key name from LiteLLM's fixed table and will only
-        # ever read GEMINI_API_KEY. This sibling's credential lives in
-        # GEMINI_API_KEY_2, so without the mapping it would silently
-        # authenticate as the FIRST Google key — the same quota this entry
-        # exists to be independent of.
-        env_from:
-          GEMINI_API_KEY: GEMINI_API_KEY_2
-      read_only:
-        via: generate_new
-        verified: by_construction
-      generate_new:
-        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        env: GEMINI_API_KEY_2
-        model: gemini-3.1-pro-preview
-        effort_param: top_level
-        effort_levels: [none, minimal, low, medium, high]
-        effort_verified: validated
+  # A SECOND Google AI Studio key belongs in the local overlay, not here.
+  # `google2` used to be hand-authored in this file — a leftover from before
+  # `+ Add another key` existed. It was the only numbered slug the UI could
+  # not undo (removal edits agents.local.yaml, and there was nothing there to
+  # edit), and it hard-coded one operator's project into everyone's install.
+  # Add extra projects with `+ Add another key` in `external-agents ui`, or
+  # `add-model --provider google2 --env GEMINI_API_KEY_2 ...`; either writes
+  # to ~/.local/state/external-agents/agents.local.yaml and stays removable.
+  #
+  # Why a separate slug at all: Google AI Studio can gate a whole PROJECT at
+  # once, independently of each model's own per-minute limit. Verified live —
+  # a call that 429'd on one project's key returned 200 on another key from
+  # the same account. A distinct provider slug makes pick's
+  # min_distinct_providers treat it as the genuinely separate source it is.
 
   # ============ DeepSeek ============
   - id: deepseek-chat
