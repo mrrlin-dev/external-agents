@@ -36,11 +36,26 @@
 #   transports.read_only     — same direct-CLI spawn as edit_exists, but the
 #     command is the CLI's no-write invocation (a distinct trust list / sandbox
 #     flag / disallowed-tools set, NOT the edit_exists cmd with a hopeful
-#     instruction appended). Requesting `read_only` on an entry that declares
-#     neither `read_only` nor `generate_new` is a hard error — it never falls
-#     back to a write-capable command. `generate_new` entries satisfy a
-#     read_only request without declaring anything: an HTTP completion call
-#     has no filesystem access at all, so it is read-only by construction.
+#     instruction appended). Requesting `read_only` on an entry that does not
+#     declare it is a hard error — it never falls back to a write-capable
+#     command.
+#     EVERY read_only block is explicit, and says HOW it is non-writing in
+#     exactly one of two ways — the loader rejects an entry that gives neither
+#     or both:
+#       cmd: "<cli> <no-write invocation>"   — proven per-entry against a
+#         canary by `external-agents verify-read-only <id>`.
+#       via: generate_new                    — the entry has no CLI at all, so
+#         its read-only role is served by its own HTTP transport. An OpenAI-
+#         compatible completion call holds no filesystem handle of any kind,
+#         so there is nothing to prove with a canary; `verified:
+#         by_construction` records that basis, and verify-read-only returns it
+#         rather than running a probe. `via` accepts ONLY generate_new —
+#         pointing it at edit_exists is the write-capable fallback this axis
+#         exists to prevent, and is rejected at load.
+#     This used to be implicit: an entry with a generate_new transport and no
+#     read_only block silently satisfied a read_only request. That worked, but
+#     it made coverage unauditable — you could not tell a deliberately
+#     read-only-capable entry from one nobody had considered.
 #     A `read_only` cmd must be verified with `external-agents verify-read-only
 #     <id>` (runs it against a canary file and confirms the file is
 #     unchanged) before it is trusted — a command whose FLAGS merely look
@@ -106,6 +121,11 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model gemini/gemini-3.6-flash"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
@@ -132,6 +152,11 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model gemini/gemini-3.1-pro-preview"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY
@@ -165,6 +190,18 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model gemini/gemini-3.6-flash"
+        # aider takes its key name from LiteLLM's fixed table and will only
+        # ever read GEMINI_API_KEY. This sibling's credential lives in
+        # GEMINI_API_KEY_2, so without the mapping it would silently
+        # authenticate as the FIRST Google key — the same quota this entry
+        # exists to be independent of.
+        env_from:
+          GEMINI_API_KEY: GEMINI_API_KEY_2
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY_2
@@ -186,6 +223,18 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model gemini/gemini-3.1-pro-preview"
+        # aider takes its key name from LiteLLM's fixed table and will only
+        # ever read GEMINI_API_KEY. This sibling's credential lives in
+        # GEMINI_API_KEY_2, so without the mapping it would silently
+        # authenticate as the FIRST Google key — the same quota this entry
+        # exists to be independent of.
+        env_from:
+          GEMINI_API_KEY: GEMINI_API_KEY_2
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         env: GEMINI_API_KEY_2
@@ -211,6 +260,11 @@ agents:
       limits: "No free quota; usage is billed per token against the account balance."
       card_required: true
     transports:
+      edit_exists:
+        cmd: "aider --model deepseek/deepseek-v4-flash"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
         env: DEEPSEEK_API_KEY
@@ -233,6 +287,11 @@ agents:
       limits: "No free quota; usage is billed per token against the account balance."
       card_required: true
     transports:
+      edit_exists:
+        cmd: "aider --model deepseek/deepseek-v4-pro"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.deepseek.com/v1/chat/completions"
         env: DEEPSEEK_API_KEY
@@ -263,6 +322,11 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model groq/llama-3.3-70b-versatile"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -282,6 +346,11 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model groq/openai/gpt-oss-120b"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -304,6 +373,11 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model groq/openai/gpt-oss-20b"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -326,6 +400,11 @@ agents:
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model groq/llama-3.1-8b-instant"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
@@ -349,6 +428,11 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -371,6 +455,11 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -393,6 +482,11 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/google/gemma-4-31b-it:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -419,6 +513,11 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/openai/gpt-oss-20b:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -441,6 +540,11 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model openrouter/cohere/north-mini-code:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
@@ -463,6 +567,10 @@ agents:
     tier: weak
     tags: [quick, free]
     auth: "cli:ollama"
+    # aider reaches the same local Ollama endpoint the generate_new url uses,
+    # but reads it from OLLAMA_API_BASE rather than a per-transport url.
+    env:
+      OLLAMA_API_BASE: "http://localhost:11434"
     preference_order: 20
     usage_url: "https://ollama.com/settings/keys"
     signup_url: "https://ollama.com/settings/keys"
@@ -472,6 +580,11 @@ agents:
       limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model ollama_chat/gpt-oss:20b-cloud"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "http://localhost:11434/v1/chat/completions"
         env: OLLAMA_UNUSED_KEY        # Ollama daemon needs no key; env var is dummy
@@ -486,6 +599,10 @@ agents:
     tier: strong
     tags: [quick, free]
     auth: "cli:ollama"
+    # aider reaches the same local Ollama endpoint the generate_new url uses,
+    # but reads it from OLLAMA_API_BASE rather than a per-transport url.
+    env:
+      OLLAMA_API_BASE: "http://localhost:11434"
     usage_url: "https://ollama.com/settings/keys"
     signup_url: "https://ollama.com/settings/keys"
     docs_url: "https://docs.ollama.com/cloud"
@@ -494,6 +611,11 @@ agents:
       limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
       card_required: false
     transports:
+      edit_exists:
+        cmd: "aider --model ollama_chat/gpt-oss:120b-cloud"
+      read_only:
+        via: generate_new
+        verified: by_construction
       generate_new:
         url: "http://localhost:11434/v1/chat/completions"
         env: OLLAMA_UNUSED_KEY
@@ -516,7 +638,23 @@ agents:
       card_required: false
     transports:
       edit_exists: "cursor-agent -p --output-format text --trust"
+      # `--mode plan` is Cursor's own documented read-only/planning mode (no
+      # edits available, not just a prompt-level restriction) — see `--help`:
+      # "plan: read-only/planning (analyze, propose plans, no edits)".
+      # Verified with `external-agents verify-read-only cursor-agent`.
+      read_only: "cursor-agent -p --output-format text --mode plan --trust"
 
+  # NOT pinned to any of the provider keys opencode can see in env
+  # (`opencode auth list` → GROQ / OPENROUTER / CEREBRAS / GEMINI). Its agent
+  # harness costs 17-32k tokens per request, measured — roughly 25x a plain
+  # completion — so pointing it at a shared free bucket would drain that
+  # bucket's daily cap on behalf of an entry that contributes no quota of its
+  # own. OpenRouter's key in particular exists for the five openrouter-* free
+  # entries and nothing else. groq's 8000 TPM free cap rejects the harness
+  # outright ("Request too large"); cerebras answers "Payment required".
+  # So this entry needs its OWN credential — `opencode auth login` — and until
+  # it has one it correctly reports needs_auth instead of borrowing someone
+  # else's quota.
   - id: opencode
     provider: sst
     model: default
@@ -530,7 +668,31 @@ agents:
       limits: "Hosted routing without your own provider keys is capped; connecting your own API keys removes the cap."
       card_required: false
     transports:
-      edit_exists: "opencode -p"
+      # opencode 1.x, NOT the `opencode -p` of the abandoned pre-1.0 Go CLI that
+      # used to shadow this name (that project is now Charm's `crush`). On 1.x
+      # `-p` is `--password`, so the old command printed the help banner and
+      # exited 0 — work silently never done.
+      # No model is pinned, on purpose. This entry's whole reason to exist is
+      # that `cli:opencode` is an auth surface — and therefore a quota bucket —
+      # that no other entry uses. Pinning it at a model another entry already
+      # covers (an Ollama Cloud model, an OpenRouter free model) would make it a
+      # second name for that bucket, and `pick`'s min_distinct_providers would
+      # hand a caller two "diverse" workers that exhaust together.
+      # It follows that the entry is only usable once opencode has its own
+      # credential: `opencode auth login`. Until then `opencode auth list`
+      # reports 0 credentials and dispatch fails at model resolution — which is
+      # the correct, visible outcome, not something to paper over with a
+      # borrowed provider in the operator's global opencode config.
+      edit_exists:
+        cmd: "opencode run --auto"
+        cwd_flag: "--dir {cwd}"
+      # `--agent plan` is opencode's own read-only agent. Do NOT substitute
+      # `permission: {edit: deny, ...}` in the config for this: with --auto that
+      # combination HANGS indefinitely in non-interactive mode (reproduced on
+      # 1.18.16 against two separate providers, 100s/150s/300s, no output).
+      read_only:
+        cmd: "opencode run --auto --agent plan"
+        cwd_flag: "--dir {cwd}"
 
   # Kiro CLI (AWS Kiro Studio's headless chat mode). The trust list must cover
   # every tool the transport promises: `edit_exists` means "edits files in
@@ -603,6 +765,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-high"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.6-flash-medium
     provider: antigravity
     model: gemini-3.6-flash-medium
@@ -617,6 +782,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-medium"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-medium"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.6-flash-low
     provider: antigravity
@@ -633,6 +801,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-low"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-low"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.5-flash-high
     provider: antigravity
     model: gemini-3.5-flash-high
@@ -647,6 +818,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-high"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.5-flash-high"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.5-flash-medium
     provider: antigravity
@@ -663,6 +837,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-medium"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.5-flash-medium"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.5-flash-low
     provider: antigravity
     model: gemini-3.5-flash-low
@@ -677,6 +854,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.5-flash-low"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.5-flash-low"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.1-pro-high
     provider: antigravity
@@ -693,6 +873,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.1-pro-high"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gemini-3.1-pro-low
     provider: antigravity
     model: gemini-3.1-pro-low
@@ -707,6 +890,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gemini-3.1-pro-low"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.1-pro-low"
         cwd_flag: "--add-dir {cwd}"
   - id: agy-claude-sonnet-4-6
     provider: antigravity
@@ -723,6 +909,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model claude-sonnet-4-6"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-claude-opus-4-6-thinking
     provider: antigravity
     model: claude-opus-4-6-thinking
@@ -738,6 +927,9 @@ agents:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model claude-opus-4-6-thinking"
+        cwd_flag: "--add-dir {cwd}"
   - id: agy-gpt-oss-120b-medium
     provider: antigravity
     model: gpt-oss-120b-medium
@@ -752,6 +944,9 @@ agents:
     transports:
       edit_exists:
         cmd: "agy --print --dangerously-skip-permissions --model gpt-oss-120b-medium"
+        cwd_flag: "--add-dir {cwd}"
+      read_only:
+        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
 
   # ============ Primary orchestrator (subscription CLI) ============
@@ -796,6 +991,11 @@ agents:
         effort_levels: [low, medium, high, xhigh]
         effort_flag: "-c model_reasoning_effort={level}"
         effort_verified: validated
+      # `--sandbox read-only` is Codex's own OS-level sandbox policy (seatbelt/
+      # landlock), not a prompt-level restriction — see `codex exec --help`:
+      # "[possible values: read-only, workspace-write, danger-full-access]".
+      # Verified with `external-agents verify-read-only codex`.
+      read_only: "codex exec --skip-git-repo-check --sandbox read-only"
 
   - id: codex-gpt-5.4-mini
     provider: openai
@@ -817,6 +1017,10 @@ agents:
         effort_levels: [low, medium, high, xhigh]
         effort_flag: "-c model_reasoning_effort={level}"
         effort_verified: validated
+      # See codex's read_only entry above for why --sandbox read-only is
+      # trustworthy here. Verified with
+      # `external-agents verify-read-only codex-gpt-5.4-mini`.
+      read_only: "codex exec --skip-git-repo-check -m gpt-5.4-mini --sandbox read-only"
 
   # Claude family — subscription-backed. All non-Fable Claude 5 / Opus 4.x
   # models. `claude-opus-4-8` is the newest strong; `claude-haiku-4-5` is
