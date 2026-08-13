@@ -1601,66 +1601,84 @@ const server = http.createServer(async (req, res) => {
           const r = probeInstalled(a);
           patch[a.id] = { ...r, checked: Math.floor(Date.now() / 1000) };
         }
-        const seenProviders = new Set();
-        const toVerify = affected.filter((a) => {
-          if (seenProviders.has(a.provider)) return false;
-          seenProviders.add(a.provider);
-          return a.transports?.generate_new?.url;
-        });
-        const verifyResults = await Promise.all(toVerify.map(async (a) => {
-          const v = await verifyCredential(a);
-          return { agent_id: a.id, provider: a.provider, ...v };
-        }));
-        for (const vr of verifyResults) {
-          if (!vr.ok) {
-            // Only a confirmed model_unavailable or needs_auth outcome says
-            // anything about the credential itself. quota_exhausted/
-            // rate_limited/errored_transient (429, 5xx, timeout, network
-            // blip) are noise from THIS verify ping, not proof the key is
-            // bad — leave the probeInstalled() result already computed above
-            // alone instead of clobbering a correct "healthy" with a false
-            // "needs_auth" (see classifyVerifyResult in lib/dispatch.js).
-            const outcome = classifyVerifyResult(vr);
-            if (outcome === "model_unavailable") {
-              // THIS model doesn't exist on the account — the key itself is
-              // fine, so mark only the verified agent (sibling entries with
-              // different models stay eligible).
-              patch[vr.agent_id] = {
-                state: "model_unavailable",
-                note: `provider says model does not exist (HTTP ${vr.status || "?"})`,
-                checked: Math.floor(Date.now() / 1000),
-              };
-            } else if (outcome === "needs_auth") {
-              // A genuinely bad key fans out to every entry sharing this provider.
-              for (const a of affected.filter((x) => x.provider === vr.provider)) {
-                patch[a.id] = {
-                  state: "needs_auth",
-                  note: `verify failed: ${vr.hint || "unknown"}`,
+        // Verify + patch is wrapped separately from the outer JSON-parse
+        // try/catch: the credential is ALREADY persisted above by this
+        // point, so a thrown verifyCredential (vs. its normal {ok:false,...}
+        // return) must not surface as the outer catch's "invalid json: ..."
+        // — that blames parsing for an unrelated failure and, worse, tells
+        // the operator the save itself failed when it didn't. Mirrors
+        // /api/add_provider_key's identical try/catch below.
+        try {
+          const seenProviders = new Set();
+          const toVerify = affected.filter((a) => {
+            if (seenProviders.has(a.provider)) return false;
+            seenProviders.add(a.provider);
+            return a.transports?.generate_new?.url;
+          });
+          const verifyResults = await Promise.all(toVerify.map(async (a) => {
+            const v = await verifyCredential(a);
+            return { agent_id: a.id, provider: a.provider, ...v };
+          }));
+          for (const vr of verifyResults) {
+            if (!vr.ok) {
+              // Only a confirmed model_unavailable or needs_auth outcome says
+              // anything about the credential itself. quota_exhausted/
+              // rate_limited/errored_transient (429, 5xx, timeout, network
+              // blip) are noise from THIS verify ping, not proof the key is
+              // bad — leave the probeInstalled() result already computed above
+              // alone instead of clobbering a correct "healthy" with a false
+              // "needs_auth" (see classifyVerifyResult in lib/dispatch.js).
+              const outcome = classifyVerifyResult(vr);
+              if (outcome === "model_unavailable") {
+                // THIS model doesn't exist on the account — the key itself is
+                // fine, so mark only the verified agent (sibling entries with
+                // different models stay eligible).
+                patch[vr.agent_id] = {
+                  state: "model_unavailable",
+                  note: `provider says model does not exist (HTTP ${vr.status || "?"})`,
                   checked: Math.floor(Date.now() / 1000),
                 };
+              } else if (outcome === "needs_auth") {
+                // A genuinely bad key fans out to every entry sharing this provider.
+                for (const a of affected.filter((x) => x.provider === vr.provider)) {
+                  patch[a.id] = {
+                    state: "needs_auth",
+                    note: `verify failed: ${vr.hint || "unknown"}`,
+                    checked: Math.floor(Date.now() / 1000),
+                  };
+                }
               }
             }
           }
+          if (Object.keys(patch).length > 0) writeState(patch);
+          // After the patch, not before: those writes replace each entry
+          // wholesale and would drop the `enabled` flag set here.
+          const enabledIds = enableAgentsAwaitingCredential(env_name, REGISTRY.agents);
+          if (enabledIds.length > 0) {
+            console.error(`external-agents ui: set_credential(${env_name}) enabled ${enabledIds.length} agent(s) that were off pending this key: ${enabledIds.join(", ")}`);
+          }
+          const okCount = verifyResults.filter((v) => v.ok).length;
+          const failCount = verifyResults.length - okCount;
+          console.error(`external-agents ui: set_credential(${env_name}) — re-probed ${affected.length}, verified ${verifyResults.length} providers (${okCount} ok, ${failCount} failed): ${verifyResults.map((v) => v.provider + "=" + (v.ok ? "ok" : "FAIL:" + v.hint)).join(", ")}`);
+          return json(res, 200, {
+            ok: true,
+            env_name,
+            persisted_to: KEYS_FILE,
+            reprobed: affected.map((a) => a.id),
+            enabled_ids: enabledIds,
+            verified: verifyResults,
+            restart_required: "Restart your MCP client (Claude Code / Codex) so IT reads keys.env too.",
+          });
+        } catch (verifyErr) {
+          return json(res, 200, {
+            ok: true,
+            env_name,
+            persisted_to: KEYS_FILE,
+            reprobed: affected.map((a) => a.id),
+            verified: [],
+            warning: `credential saved but post-save verification failed: ${verifyErr.message}`,
+          });
         }
-        if (Object.keys(patch).length > 0) writeState(patch);
-        // After the patch, not before: those writes replace each entry
-        // wholesale and would drop the `enabled` flag set here.
-        const enabledIds = enableAgentsAwaitingCredential(env_name, REGISTRY.agents);
-        if (enabledIds.length > 0) {
-          console.error(`external-agents ui: set_credential(${env_name}) enabled ${enabledIds.length} agent(s) that were off pending this key: ${enabledIds.join(", ")}`);
-        }
-        const okCount = verifyResults.filter((v) => v.ok).length;
-        const failCount = verifyResults.length - okCount;
-        console.error(`external-agents ui: set_credential(${env_name}) — re-probed ${affected.length}, verified ${verifyResults.length} providers (${okCount} ok, ${failCount} failed): ${verifyResults.map((v) => v.provider + "=" + (v.ok ? "ok" : "FAIL:" + v.hint)).join(", ")}`);
-        return json(res, 200, {
-          ok: true,
-          env_name,
-          persisted_to: KEYS_FILE,
-          reprobed: affected.map((a) => a.id),
-          enabled_ids: enabledIds,
-          verified: verifyResults,
-          restart_required: "Restart your MCP client (Claude Code / Codex) so IT reads keys.env too.",
-        });
       } catch (e) {
         return json(res, 400, { error: "invalid json: " + e.message });
       }

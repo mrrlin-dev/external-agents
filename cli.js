@@ -20,7 +20,7 @@
 import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.js";
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential } from "./lib/state.js";
-import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting } from "./lib/dispatch.js";
+import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult } from "./lib/dispatch.js";
 import { pickAgents, providerFamily } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
@@ -522,14 +522,7 @@ async function cmdAudit(flags) {
         const v = hasApi
           ? await verifyCredential(entry)
           : await auditCliEntry(entry);
-        const outcome =
-          v.ok                       ? "healthy"
-          : v.modelUnavailable       ? "model_unavailable"
-          : v.quotaExhausted         ? "quota_exhausted"
-          : v.needsAuth              ? "needs_auth"
-          : v.status === 401 || v.status === 403 ? "needs_auth"
-          : v.status === 429         ? "rate_limited"
-          : "errored_transient";
+        const outcome = classifyVerifyResult(v);
         const note =
           v.ok            ? `verified (${v.latencyMs}ms)${hasApi ? "" : " (cli)"}`
           : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
