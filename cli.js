@@ -690,6 +690,8 @@ switch (subcmd) {
         omit it for mechanical edits and lookups — the provider's own default applies.)
        (--cwd = existing dir; with an available edit_exists transport it is preferred and edits in place; generate_new ignores it)
        (--file = essential context for generate_new; optional for edit_exists because direct CLIs can read --cwd; repeatable; path:10-50 for line range; paths relative to --cwd)
+       (ALWAYS pass --cwd with --file: it is the containment root. Without it paths resolve against
+        the current process cwd, so a file outside that tree fails the dispatch instead of attaching.)
   status [--json]
   probe <agent-id>
   verify-read-only <agent-id>  # runs the entry's declared read_only cmd against a canary file; exits 1 unless it's provably non-writing
