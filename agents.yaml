@@ -719,6 +719,16 @@ agents:
   # -high/-medium/-low variant per family just wasted pick/dispatch attempts
   # on siblings that exhaust together; kept the quick (-high, fastest) and
   # reasoning variant per family instead of the full effort ladder.
+  #
+  # `--print`/its alias `--prompt` is NOT a bare boolean like claude's
+  # `--print` — confirmed live (2026-08-13): it consumes the very next token
+  # as its own value. With `--print` left in `cmd` and the prompt appended as
+  # a trailing positional (runDispatch's default for every other CLI here),
+  # `--print` swallows `--dangerously-skip-permissions` as "the prompt" and
+  # the model answers a question about that flag string instead — while the
+  # process still exits 0, so the dispatch trailer reports success for a
+  # request the model never received. `prompt_flag: "--print"` below tells
+  # runDispatch to place `--print` immediately before the real prompt instead.
   - id: agy-gemini-3.6-flash-high
     provider: antigravity
     model: gemini-3.6-flash-high
@@ -732,11 +742,13 @@ agents:
       card_required: false
     transports:
       edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gemini-3.6-flash-high"
+        cmd: "agy --dangerously-skip-permissions --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
       read_only:
-        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-high"
+        cmd: "agy --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
   - id: agy-gemini-3.1-pro-high
     provider: antigravity
     model: gemini-3.1-pro-high
@@ -750,11 +762,13 @@ agents:
       card_required: false
     transports:
       edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gemini-3.1-pro-high"
+        cmd: "agy --dangerously-skip-permissions --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
       read_only:
-        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gemini-3.1-pro-high"
+        cmd: "agy --dangerously-skip-permissions --mode plan --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
   - id: agy-claude-sonnet-4-6
     provider: antigravity
     model: claude-sonnet-4-6
@@ -768,11 +782,13 @@ agents:
       card_required: false
     transports:
       edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model claude-sonnet-4-6"
+        cmd: "agy --dangerously-skip-permissions --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
       read_only:
-        cmd: "agy --print --dangerously-skip-permissions --mode plan --model claude-sonnet-4-6"
+        cmd: "agy --dangerously-skip-permissions --mode plan --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
   - id: agy-claude-opus-4-6-thinking
     provider: antigravity
     model: claude-opus-4-6-thinking
@@ -786,11 +802,13 @@ agents:
       card_required: false
     transports:
       edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model claude-opus-4-6-thinking"
+        cmd: "agy --dangerously-skip-permissions --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
       read_only:
-        cmd: "agy --print --dangerously-skip-permissions --mode plan --model claude-opus-4-6-thinking"
+        cmd: "agy --dangerously-skip-permissions --mode plan --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
   - id: agy-gpt-oss-120b-medium
     provider: antigravity
     model: gpt-oss-120b-medium
@@ -804,11 +822,13 @@ agents:
       card_required: false
     transports:
       edit_exists:
-        cmd: "agy --print --dangerously-skip-permissions --model gpt-oss-120b-medium"
+        cmd: "agy --dangerously-skip-permissions --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
       read_only:
-        cmd: "agy --print --dangerously-skip-permissions --mode plan --model gpt-oss-120b-medium"
+        cmd: "agy --dangerously-skip-permissions --mode plan --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
 
   # ============ Primary orchestrator (subscription CLI) ============
   # These are strong-tier agentic CLIs backed by an operator subscription — not
