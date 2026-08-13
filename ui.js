@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadRegistry, LOCAL_PATH, CANONICAL_BASES, nextProviderSlot, withLocalOverlayLock } from "./lib/registry.js";
 import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential } from "./lib/state.js";
-import { verifyCredential, getStats, auditCliEntry } from "./lib/dispatch.js";
+import { verifyCredential, getStats, auditCliEntry, classifyVerifyResult } from "./lib/dispatch.js";
 import { bootEnv, refreshEnv } from "./lib/credentials.js";
 // Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
 // before any probe/dispatch runs. Without this, /api/audit sees a blank env
@@ -1613,25 +1613,32 @@ const server = http.createServer(async (req, res) => {
         }));
         for (const vr of verifyResults) {
           if (!vr.ok) {
-            // If verify failed specifically because THIS model doesn't exist
-            // on the account, mark ONLY the verified agent as model_unavailable
-            // (the key itself is fine — sibling entries with different models
-            // stay eligible). Any other failure fans out to every entry
-            // sharing this provider (bad key = bad key everywhere).
-            if (vr.modelUnavailable) {
+            // Only a confirmed model_unavailable or needs_auth outcome says
+            // anything about the credential itself. quota_exhausted/
+            // rate_limited/errored_transient (429, 5xx, timeout, network
+            // blip) are noise from THIS verify ping, not proof the key is
+            // bad — leave the probeInstalled() result already computed above
+            // alone instead of clobbering a correct "healthy" with a false
+            // "needs_auth" (see classifyVerifyResult in lib/dispatch.js).
+            const outcome = classifyVerifyResult(vr);
+            if (outcome === "model_unavailable") {
+              // THIS model doesn't exist on the account — the key itself is
+              // fine, so mark only the verified agent (sibling entries with
+              // different models stay eligible).
               patch[vr.agent_id] = {
                 state: "model_unavailable",
                 note: `provider says model does not exist (HTTP ${vr.status || "?"})`,
                 checked: Math.floor(Date.now() / 1000),
               };
-              continue;
-            }
-            for (const a of affected.filter((x) => x.provider === vr.provider)) {
-              patch[a.id] = {
-                state: "needs_auth",
-                note: `verify failed: ${vr.hint || "unknown"}`,
-                checked: Math.floor(Date.now() / 1000),
-              };
+            } else if (outcome === "needs_auth") {
+              // A genuinely bad key fans out to every entry sharing this provider.
+              for (const a of affected.filter((x) => x.provider === vr.provider)) {
+                patch[a.id] = {
+                  state: "needs_auth",
+                  note: `verify failed: ${vr.hint || "unknown"}`,
+                  checked: Math.floor(Date.now() / 1000),
+                };
+              }
             }
           }
         }
@@ -1752,13 +1759,20 @@ const server = http.createServer(async (req, res) => {
           }));
           for (const vr of verifyResults) {
             if (vr.ok) continue;
-            if (vr.modelUnavailable) {
+            // Same reasoning as /api/set_credential: only model_unavailable
+            // or needs_auth says anything about the credential. A transient
+            // verify failure (rate limit, 5xx, timeout) must not overwrite
+            // the healthy probeInstalled() result already in patch — that
+            // is exactly what locked the numbered clones the operator just
+            // added when the very next verify ping caught Gemini's 429.
+            const outcome = classifyVerifyResult(vr);
+            if (outcome === "model_unavailable") {
               patch[vr.agent_id] = {
                 state: "model_unavailable",
                 note: `provider says model does not exist (HTTP ${vr.status || "?"})`,
                 checked: Math.floor(Date.now() / 1000),
               };
-            } else {
+            } else if (outcome === "needs_auth") {
               for (const a of cloneAgents) {
                 patch[a.id] = {
                   state: "needs_auth",
@@ -1903,14 +1917,7 @@ const server = http.createServer(async (req, res) => {
     if (!entry) return json(res, 404, { error: `unknown agent: ${id}` });
     const hasApi = !!entry.transports?.generate_new?.url;
     const v = hasApi ? await verifyCredential(entry) : await auditCliEntry(entry);
-    const outcome =
-      v.ok                       ? "healthy"
-      : v.modelUnavailable       ? "model_unavailable"
-      : v.quotaExhausted         ? "quota_exhausted"
-      : v.needsAuth              ? "needs_auth"
-      : v.status === 401 || v.status === 403 ? "needs_auth"
-      : v.status === 429         ? "rate_limited"
-      : "errored_transient";
+    const outcome = classifyVerifyResult(v);
     const note =
       v.ok            ? `verified (${v.latencyMs}ms)${hasApi ? "" : " (cli)"}`
       : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
