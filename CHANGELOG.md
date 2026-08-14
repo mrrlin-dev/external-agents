@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.42.2] - 2026-08-14
+
+### Fixed
+
+- **The dashboard's `error_preview` for `ollama-gpt-oss-120b` (and any other `ollama_chat`-backed entry) showed a harmless startup warning instead of the real failure reason.** aider's litellm `ollama_chat` backend shells out to `ollama show <model>` for context-window auto-detection, inheriting the parent spawn's `stdin:"ignore"` — so it always prints `Warning: Input is not a terminal (fd=0).` to stderr, success or failure. That line landed at the tail of stderr, exactly where the preview's last-400-chars slice looks, burying the actual error. Added `stripBenignStderrNoise()`, applied only when building the preview; the raw stored stderr and the exit-code/outcome classification path are unchanged.
+
 ## [0.42.1] - 2026-08-13
 
 ### Fixed
