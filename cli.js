@@ -19,8 +19,8 @@
 //   probe <agent-id> → probes one agent, prints new state JSON
 import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.js";
 import yaml from "js-yaml";
-import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential } from "./lib/state.js";
-import { runAny, resolveEscalation, parseExhaustionSignal, classifyCliFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult } from "./lib/dispatch.js";
+import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState } from "./lib/state.js";
+import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult } from "./lib/dispatch.js";
 import { pickAgents, providerFamily } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
@@ -205,18 +205,20 @@ async function cmdDispatch(args, flags) {
   // so the two dispatch surfaces never drift.
   const ok = result.exitCode === 0;
   const failText = result.stderr + "\n" + result.output;
-  const cliFailure = ok ? { needsAuth: false, quotaExhausted: false } : classifyCliFailure(failText);
-  const sig = ok ? { detected: false } : parseExhaustionSignal(failText);
+  const failure = ok
+    ? { cliFailure: { needsAuth: false, quotaExhausted: false }, exhaustionSignal: { detected: false }, isExhaustion: false }
+    : classifyDispatchFailure(failText);
   // Resolve the REAL reset (period-aware, provider-aware) from the failing output — e.g. a CLI
   // "Monthly request limit reached" resolves to +7d, not the ladder's first rung. No headers on
   // the CLI path, so this uses body text + provider policy only.
   // Only a `limited` (rate-limit/quota) outcome carries a reset; a plain transient fault climbs the
   // ladder and ignores resetAt.
-  const exhaustionResetAt = (!ok && sig.detected)
+  const isExhaustion = failure.isExhaustion;
+  const exhaustionResetAt = (!ok && isExhaustion)
     ? resolveExhaustionResetAt({ text: failText, provider: entry.provider, nowMs: Date.now() })
     : undefined;
   const prev = readState()[entry.id];
-  const nextRec = cliFailure.needsAuth
+  const nextRec = failure.cliFailure.needsAuth
     ? {
         ...prev,
         state: "needs_auth",
@@ -225,12 +227,12 @@ async function cmdDispatch(args, flags) {
       }
     : nextStateAfterOutcome(prev, {
         ok,
-        isExhaustion: !!sig.detected || cliFailure.quotaExhausted,
+        isExhaustion,
         exhaustionResetAt,
         now,
       });
   writeState({ [entry.id]: nextRec });
-  const outcome = ok ? "success" : (sig.detected ? "quota_exhausted" : "error");
+  const outcome = ok ? "success" : (isExhaustion ? "quota_exhausted" : "error");
 
   // --json: emit ONE structured object to stdout and nothing else — for
   // programmatic callers (mrrlin's runMultiHead, ADR 0022) that need
@@ -541,21 +543,15 @@ async function cmdAudit(flags) {
           (outcome === "quota_exhausted" || outcome === "rate_limited")
             ? (v.reset_at ?? (Math.floor(Date.now() / 1000) + 3600))
             : undefined;
-        // Deep-merge so probe metadata (last_used_at, enabled flag) survives.
         const existing = readState()[entry.id] || {};
-        // A healthy probe CLEARS any stale cooldown/streak from a prior park — otherwise the
-        // recovered agent would carry a dead cooldown_until on a healthy record (undefined values
-        // are dropped by JSON.stringify, so this removes the keys).
-        const recovered = outcome === "healthy";
         writeState({
-          [entry.id]: {
-            ...existing,
-            ...(recovered ? { cooldown_until: undefined, source: undefined, consecutive_failures: 0 } : {}),
-            state: outcome,
+          [entry.id]: mergeAuditState(existing, {
+            outcome,
             note,
             checked: Math.floor(Date.now() / 1000),
-            ...(cooldown_until !== undefined ? { cooldown_until, source: cooldownSource } : {}),
-          },
+            cooldown_until,
+            source: cooldownSource,
+          }),
         });
         out.push({ id: entry.id, provider: entry.provider, model: entry.model, outcome, status: v.status || null, note });
       }

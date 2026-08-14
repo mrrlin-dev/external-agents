@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRegistry, LOCAL_PATH, CANONICAL_BASES, nextProviderSlot, withLocalOverlayLock } from "./lib/registry.js";
-import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential } from "./lib/state.js";
+import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential, mergeAuditState } from "./lib/state.js";
 import { verifyCredential, getStats, auditCliEntry, classifyVerifyResult } from "./lib/dispatch.js";
 import { bootEnv, refreshEnv } from "./lib/credentials.js";
 // Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
@@ -1951,15 +1951,14 @@ const server = http.createServer(async (req, res) => {
       (outcome === "quota_exhausted" || outcome === "rate_limited")
         ? (v.reset_at ?? (Math.floor(Date.now() / 1000) + 3600))
         : undefined;
-    const existing = readState()[entry.id] || {};
     writeState({
-      [entry.id]: {
-        ...existing,
-        state: outcome,
+      [entry.id]: mergeAuditState(readState()[entry.id] || {}, {
+        outcome,
         note,
         checked: Math.floor(Date.now() / 1000),
-        ...(cooldown_until !== undefined ? { cooldown_until, source: cooldownSource } : {}),
-      },
+        cooldown_until,
+        source: cooldownSource,
+      }),
     });
     return json(res, 200, { id, outcome, note, latency_ms: v.latencyMs || null, status: v.status || null });
   }
