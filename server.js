@@ -13,7 +13,7 @@ import { loadRegistry } from "./lib/registry.js";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
-import { runAny, parseExhaustionSignal, resolveEscalation, getStats } from "./lib/dispatch.js";
+import { runAny, classifyDispatchFailure, resolveEscalation, getStats } from "./lib/dispatch.js";
 import { pickAgents } from "./lib/pick.js";
 
 // Resolve agents.yaml relative to THIS module, never the process cwd. As an
@@ -333,20 +333,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // failures; identical logic to cli.js so the two dispatch surfaces never drift.
     const ok = result.exitCode === 0;
     const failText = result.stderr + "\n" + result.output;
-    const signal = ok ? { detected: false } : parseExhaustionSignal(failText);
+    const failure = ok
+      ? { isExhaustion: false }
+      : classifyDispatchFailure(failText);
+    const isExhaustion = failure.isExhaustion;
     // limited (rate-limit/quota) → resolve the real reset (period/provider-aware); transient → none.
-    const exhaustionResetAt = (!ok && signal.detected)
+    const exhaustionResetAt = (!ok && isExhaustion)
       ? resolveExhaustionResetAt({ text: failText, provider: entry.provider, nowMs: Date.now() })
       : undefined;
     const prevRec = readState()[entry.id];
     const nextRec = nextStateAfterOutcome(prevRec, {
       ok,
-      isExhaustion: !!signal.detected,
+      isExhaustion,
       exhaustionResetAt,
       now,
     });
     writeState({ [entry.id]: nextRec });
-    const outcome = ok ? "success" : (signal.detected ? "quota_exhausted" : "error");
+    const outcome = ok ? "success" : (isExhaustion ? "quota_exhausted" : "error");
 
     const response = {
       agent_id: entry.id,
