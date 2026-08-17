@@ -141,7 +141,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "generate_new (HTTP has no filesystem access at all). An entry with only edit_exists and " +
           "no read_only errors rather than silently falling back to the write-capable command." +
           "\n\nROUTING NOTE: for the same task, weak-tier free-tier models (Gemini flash, Groq " +
-          "llama, DeepSeek, OpenRouter :free) are usually correct AND fast enough. Use dispatch " +
+          "Qwen, DeepSeek, OpenRouter :free) are usually correct AND fast enough. Use dispatch " +
           "against Claude Opus, Codex Pro, or any strong-tier subscription model ONLY when the " +
           "task genuinely needs frontier capability. escalate_to_pro is a retry lever, not a " +
           "default. If a weak agent's output is wrong, first ask whether the SPEC was ambiguous " +

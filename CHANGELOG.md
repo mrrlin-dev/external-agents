@@ -4,7 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
-## [0.43.1] - 2026-08-17
+## [0.44.0] - 2026-08-17
+
+### Removed
+
+- **Groq's two Llama entries (`groq-llama-3.3-70b`, `groq-llama-3.1-8b-instant`)** — both now return `model_not_found` from `api.groq.com`; Groq has retired the chat-capable Llama family from its hosted catalog (`/openai/v1/models` lists only the `llama-prompt-guard-2` classifiers). Their `token_limits` notes had already flagged them as missing from Groq's live rate-limits page in 0.43.0; this confirms the deprecation.
+
+### Added
+
+- **`groq-qwen3.6-27b`** — replaces the removed Llama entries in Groq's weak tier (131072-token context, `reasoning_effort` enum `none`/`default`, validated against the live API). `groq-gpt-oss-20b` also remains weak-tier on the same key.
 
 ### Fixed
 

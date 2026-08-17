@@ -224,7 +224,7 @@ declare the capability, and never fall back to a write-capable command.
 ## Common gotchas
 
 - **CLI invocation**: `edit_exists` passes the task prompt as the command's final positional argument. Verify this contract for a custom CLI before registering it.
-- **Model ID Prefixing**: For `generate_new`, use the raw model name expected by the OpenAI-compatible endpoint (e.g., `llama-3.3-70b-versatile`), otherwise the API may return a 404.
+- **Model ID Prefixing**: For `generate_new`, use the raw model name expected by the OpenAI-compatible endpoint (e.g., `qwen/qwen3.6-27b`), otherwise the API may return a 404.
 - **Quota Scopes**: Setting `quota_scope: shared` tells the router to avoid hammering other models under the same provider if one model returns a `429 Too Many Requests` error. Make sure to set this correctly for providers like Groq or Anthropic where your tier's limits apply across the entire account.
 - **Pricing Fields**: Pricing structures (`input_cost_per_m`, `output_cost_per_m`) are deferred to the v1-deferred schema implementation. Do not manually add price fields to your `agents.yaml` entry; they are fetched dynamically.
 - **Attached files**: The containment and size limits on `files` protect `generate_new` from reading outside its supplied `cwd`. Do not rely on them to grant a direct CLI filesystem access; pass `cwd` for that.

@@ -298,38 +298,14 @@ agents:
   # `external-agents add-model --provider zai ...`.
 
   # ============ Groq — free tier, ~500-800 tok/s ============
-  - id: groq-llama-3.3-70b
-    provider: groq
-    model: llama-3.3-70b-versatile
-    quota_scope: shared
-    tier: weak
-    tags: [quick, fast, free]
-    auth: "env:GROQ_API_KEY"
-    preference_order: 8
-    usage_url: "https://console.groq.com/settings/usage"
-    signup_url: "https://console.groq.com/keys"
-    docs_url: "https://console.groq.com/docs"
-    free_tier:
-      description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
-      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
-      card_required: false
-    token_limits:
-      context_window: 131072
-      tpm: 12000
-      tpd: 100000
-      rpm: 30
-      rpd: 1000
-      note: "CAUTION: absent from Groq's live rate-limits page as of 2026-08 -- these are last-known Free-plan numbers from before the model disappeared there; verify with `external-agents audit` before relying on it."
-    transports:
-      edit_exists:
-        cmd: "aider --model groq/llama-3.3-70b-versatile"
-      read_only:
-        via: generate_new
-        verified: by_construction
-      generate_new:
-        url: "https://api.groq.com/openai/v1/chat/completions"
-        env: GROQ_API_KEY
-        model: llama-3.3-70b-versatile
+  # Groq's Llama entries removed — `llama-3.3-70b-versatile` and
+  # `llama-3.1-8b-instant` both now return `model_not_found` from
+  # api.groq.com; Groq has retired the Llama family from its hosted catalog
+  # (`/openai/v1/models` no longer lists any chat-capable meta-llama model,
+  # only the two `llama-prompt-guard-2` classifiers). The `token_limits`
+  # notes here had already flagged them as missing from Groq's live
+  # rate-limits page. `groq-qwen3.6-27b` below replaces them in the weak
+  # slot; `groq-gpt-oss-20b` also remains weak-tier on the same key.
   - id: groq-gpt-oss-120b
     provider: groq
     model: openai/gpt-oss-120b
@@ -395,13 +371,14 @@ agents:
         effort_param: top_level
         effort_levels: [none, default, low, medium, high]
         effort_verified: validated
-  - id: groq-llama-3.1-8b-instant
+  - id: groq-qwen3.6-27b
     provider: groq
-    model: llama-3.1-8b-instant
+    model: qwen/qwen3.6-27b
     quota_scope: shared
     tier: weak
     tags: [quick, fast, free]
     auth: "env:GROQ_API_KEY"
+    preference_order: 8
     usage_url: "https://console.groq.com/settings/usage"
     signup_url: "https://console.groq.com/keys"
     docs_url: "https://console.groq.com/docs"
@@ -411,19 +388,22 @@ agents:
       card_required: false
     token_limits:
       context_window: 131072
-      tpm: 6000
-      rpd: 14400
-      note: "CAUTION: absent from Groq's live rate-limits page as of 2026-08 -- these are last-known Free-plan numbers from before the model disappeared there; verify with `external-agents audit` before relying on it."
+      tpm: 8000
+      rpd: 1000
+      note: "tpm/rpd read from the live `x-ratelimit-limit-*` response headers on 2026-08-17, not a docs page; max_completion_tokens is 16384."
     transports:
       edit_exists:
-        cmd: "aider --model groq/llama-3.1-8b-instant"
+        cmd: "aider --model groq/qwen/qwen3.6-27b"
       read_only:
         via: generate_new
         verified: by_construction
       generate_new:
         url: "https://api.groq.com/openai/v1/chat/completions"
         env: GROQ_API_KEY
-        model: llama-3.1-8b-instant
+        model: qwen/qwen3.6-27b
+        effort_param: top_level
+        effort_levels: [none, default]
+        effort_verified: validated
   # ============ OpenRouter — 50+ free models with :free tag ============
   # NB: OpenRouter rotates its :free catalog often — models come and go.
   # If any entry here 404s, run `external-agents audit --provider openrouter`
