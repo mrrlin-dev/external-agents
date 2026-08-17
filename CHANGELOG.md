@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.43.1] - 2026-08-17
+
+### Fixed
+
+- **A registry entry the operator explicitly disabled could still reach its real provider.** Two related gaps: `enableAgentsAwaitingCredential` only skipped an entry when `state.json`'s `enabled` was already `true`, so a repeated `set-credential` call for the same env var (key rotation, a second setup pass) silently flipped a deliberate operator disable back to enabled — reproduced live by disabling `deepseek-chat`, re-running `set-credential DEEPSEEK_API_KEY`, and watching it re-enable with no operator action. Separately, `enabled: false` was enforced only inside `pickAgents` (automatic selection); a direct `dispatch <agent_id>` — CLI or the MCP tool — named an id explicitly and skipped that filter entirely, so a disabled entry stayed reachable regardless. This is exactly how a DeepSeek provider a corporate network policy was blocking kept getting live traffic after the operator turned it off. `enableAgentsAwaitingCredential` now skips an entry once `state.json` records ANY explicit `enabled` value (true or false), not just `true` — it's a one-time bootstrap flip, not a standing sync. The two-layer enabled check (registry default + state override) is now a shared `isAgentEnabled()` in `lib/pick.js`, used by `pickAgents`, `resolveEscalation`, and both dispatch entrypoints (`cli.js`, `server.js`'s MCP tool), so a disabled agent refuses a direct by-id dispatch before touching any credential or network. Reviewed via an independent consensus round (2 of 4 dispatched reviewers responded; both APPROVE, no critical issues). 9 new tests total, including an end-to-end `cli.js` subprocess test and an MCP-client integration test against the real `server.js` over stdio.
+
 ## [0.43.0] - 2026-08-17
 
 ### Added
