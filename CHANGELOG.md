@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.44.1] - 2026-08-17
+
+### Fixed
+
+- **A flaky test, not a product defect: the 1s spawn budget in `lib/dispatch.progress.test.js` failed under CPU contention.** Seven fixtures spawn a fresh `node` and expect it to run to completion within `timeoutMs: 1000`; a cold node start is ~100-300ms on an idle machine but comfortably over 1s when the box is busy, so the assertion measured the load average and reported `runDispatch`'s own timeout code (`124 !== 0`). Hoisted into `SPAWN_TIMEOUT_MS = 10_000`; the two deliberate timeout tests (30ms, 50ms) keep their tight inline budgets. Verified A/B under 4-way parallel load, 24 suite runs each: 14 failures before, 0 after.
+
 ## [0.44.0] - 2026-08-17
 
 ### Removed
