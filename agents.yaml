@@ -94,6 +94,36 @@
 # All three are UI-facing catalog content, not auth or dispatch behavior — an
 # entry with none of them still dispatches normally; a consumer falls back to
 # "not documented yet" rather than treating their absence as an error.
+#
+# `token_limits` (optional) — machine-readable sizing/throughput facts for
+# whoever is PICKING an agent for a prompt (a human, or an LLM orchestrator
+# reading this file before calling dispatch), so an oversized or too-frequent
+# prompt can be routed elsewhere instead of failing live. Deliberately
+# separate from `free_tier` above: that block is UI prose about cost/signup,
+# this is a sizing/throughput check. Every field is optional and included
+# ONLY when the provider actually publishes that specific number — never
+# invent a figure for a cap shape a provider doesn't use (e.g. don't add
+# `tpm` for a provider that gates by concurrent connections instead).
+#   context_window — max input+output tokens the model accepts.
+#   tpm            — free-tier tokens-per-minute cap, when published as one
+#                    combined number (most providers that publish TPM at all
+#                    publish it this way, e.g. Groq).
+#   itpm / otpm    — input-tokens-per-minute / output-tokens-per-minute, for
+#                    providers (e.g. Anthropic) that split the TPM cap by
+#                    direction instead of publishing one combined `tpm`.
+#   tpd            — tokens-per-day cap, when published alongside tpm/rpm.
+#   rpm / rpd      — requests-per-minute / requests-per-day cap.
+#   concurrent     — max concurrent connections/requests, for providers (e.g.
+#                    DeepSeek) that gate by parallelism instead of a
+#                    tpm/rpm/rpd number.
+#   note           — one line of prose carrying whatever the numeric fields
+#                    can't: caveats, a cap shape with no field above (e.g.
+#                    session/usage-level gating), confidence, or "why this
+#                    entry exists" (e.g. the Groq 8000 TPM cap that rejected
+#                    a 42KB prompt outright and prompted this field).
+# Numbers here are a best-effort snapshot (dated 2026-08), not a live poll —
+# rate limits drift and some free tiers are login-gated with no scrapable
+# page at all. Re-verify before hardcoding a hard reject on these figures.
 schema_version: 1
 agents:
 
@@ -120,6 +150,12 @@ agents:
       description: "Google AI Studio issues a free API key with no credit card required. The free tier is rate-limited per minute and per day rather than metered by spend."
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
+    token_limits:
+      context_window: 1000000
+      tpm: 250000
+      rpm: 10
+      rpd: 1500
+      note: "Free-tier numbers live behind a login-gated AI Studio console page; tpm/rpm/rpd here are third-party-tracker estimates, unverified against an official table."
     transports:
       edit_exists:
         cmd: "aider --model gemini/gemini-3.6-flash"
@@ -151,6 +187,8 @@ agents:
       description: "Not on the free tier. The key itself is free to issue with no card, but Gemini Pro's free-tier allowance is 0 requests — reaching this model at all requires billing enabled on the project."
       limits: "0 free requests. Paid usage is metered per token; see the usage console."
       card_required: true
+    token_limits:
+      note: "Free tier reportedly dropped the Pro line entirely (~2026-05) -- effectively billing-only now; see the free_tier block above (0 free requests). No free-tier tpm/rpm/rpd exists to cite."
     transports:
       edit_exists:
         cmd: "aider --model gemini/gemini-3.1-pro-preview"
@@ -200,6 +238,10 @@ agents:
       description: "DeepSeek's API is prepaid rather than free — a small balance top-up is required before a key can dispatch a request."
       limits: "No free quota; usage is billed per token against the account balance."
       card_required: true
+    token_limits:
+      context_window: 1000000
+      concurrent: 2500
+      note: "DeepSeek rate-limits by concurrent connections, not tpm/rpm/rpd -- one large prompt is fine, high parallel dispatch is not."
     transports:
       edit_exists:
         cmd: "aider --model deepseek/deepseek-v4-flash"
@@ -232,6 +274,10 @@ agents:
       description: "DeepSeek's API is prepaid rather than free — a small balance top-up is required before a key can dispatch a request."
       limits: "No free quota; usage is billed per token against the account balance."
       card_required: true
+    token_limits:
+      context_window: 1000000
+      concurrent: 500
+      note: "Same 1M context as deepseek-chat; concurrency cap here is lower (500 vs 2500) -- gated by concurrent connections, not tpm/rpm/rpd."
     transports:
       edit_exists:
         cmd: "aider --model deepseek/deepseek-v4-pro"
@@ -267,6 +313,13 @@ agents:
       description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
+    token_limits:
+      context_window: 131072
+      tpm: 12000
+      tpd: 100000
+      rpm: 30
+      rpd: 1000
+      note: "CAUTION: absent from Groq's live rate-limits page as of 2026-08 -- these are last-known Free-plan numbers from before the model disappeared there; verify with `external-agents audit` before relying on it."
     transports:
       edit_exists:
         cmd: "aider --model groq/llama-3.3-70b-versatile"
@@ -291,6 +344,13 @@ agents:
       description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
+    token_limits:
+      context_window: 131072
+      tpm: 8000
+      tpd: 200000
+      rpm: 30
+      rpd: 1000
+      note: "tpm is the cap that rejected a 42KB prompt outright ('Request too large') -- keep dispatched prompts well under it; don't attach large docs/ADRs here."
     transports:
       edit_exists:
         cmd: "aider --model groq/openai/gpt-oss-120b"
@@ -318,6 +378,10 @@ agents:
       description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
+    token_limits:
+      context_window: 131072
+      tpd: 200000
+      note: "tpm not clearly published for this specific size (only tpd confirmed) -- assume tpm is at least as tight as the 120b sibling's 8000."
     transports:
       edit_exists:
         cmd: "aider --model groq/openai/gpt-oss-20b"
@@ -345,6 +409,11 @@ agents:
       description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
       limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
       card_required: false
+    token_limits:
+      context_window: 131072
+      tpm: 6000
+      rpd: 14400
+      note: "CAUTION: absent from Groq's live rate-limits page as of 2026-08 -- these are last-known Free-plan numbers from before the model disappeared there; verify with `external-agents audit` before relying on it."
     transports:
       edit_exists:
         cmd: "aider --model groq/llama-3.1-8b-instant"
@@ -373,6 +442,10 @@ agents:
       description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
+    token_limits:
+      context_window: 1000000
+      rpm: 20
+      note: "OpenRouter's free tier is account-wide, not per-model: rpm above plus rpd 50 (<$10 lifetime credit) / 1000 (>=$10) -- shared across every other openrouter-*-free entry below."
     transports:
       edit_exists:
         cmd: "aider --model openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -400,6 +473,10 @@ agents:
       description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
+    token_limits:
+      context_window: 262144
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps as the other openrouter-*-free entries (rpd 50, or 1000 with >=$10 lifetime credit)."
     transports:
       edit_exists:
         cmd: "aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free"
@@ -427,6 +504,10 @@ agents:
       description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
+    token_limits:
+      context_window: 262144
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit); context window from a search snippet, not a direct fetch."
     transports:
       edit_exists:
         cmd: "aider --model openrouter/google/gemma-4-31b-it:free"
@@ -458,6 +539,10 @@ agents:
       description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
+    token_limits:
+      context_window: 131072
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit)."
     transports:
       edit_exists:
         cmd: "aider --model openrouter/openai/gpt-oss-20b:free"
@@ -485,6 +570,10 @@ agents:
       description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
+    token_limits:
+      context_window: 262144
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit); least-verified context window in this group (single aggregator source)."
     transports:
       edit_exists:
         cmd: "aider --model openrouter/cohere/north-mini-code:free"
@@ -525,6 +614,9 @@ agents:
       description: "Ollama's hosted cloud models include a free usage allowance for signed-in accounts, no credit card required to start."
       limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
       card_required: false
+    token_limits:
+      context_window: 131072
+      note: "Ollama Cloud has no tpm/rpm/rpd concept -- gated by session (5h) + weekly usage level instead."
     transports:
       edit_exists:
         cmd: "aider --model ollama_chat/gpt-oss:20b-cloud"
@@ -556,6 +648,9 @@ agents:
       description: "Ollama's hosted cloud models include a free usage allowance for signed-in accounts, no credit card required to start."
       limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
       card_required: false
+    token_limits:
+      context_window: 131072
+      note: "Same session/weekly usage-level gating as the 20b sibling, at a heavier usage level -- no tpm/rpm/rpd to cite."
     transports:
       edit_exists:
         cmd: "aider --model ollama_chat/gpt-oss:120b-cloud"
@@ -582,6 +677,8 @@ agents:
       description: "Cursor CLI authenticates with a Cursor account. The free Hobby plan includes a limited monthly usage allowance; Pro removes most caps."
       limits: "Hobby-plan usage is capped per month and resets on the billing cycle."
       card_required: false
+    token_limits:
+      note: "Subscription CLI, not an API key -- no numeric provider tpm/rpm/rpd to cite; capped by the Cursor plan's own usage allowance."
     transports:
       edit_exists: "cursor-agent -p --output-format text --trust"
       # `--mode plan` is Cursor's own documented read-only/planning mode (no
@@ -640,6 +737,8 @@ agents:
       description: "OpenCode Zen is opencode's own hosted model routing. Its `deepseek-v4-flash-free` model needs no account, no API key, and no `opencode auth login` — confirmed live with every credential this package sets unset. This entry is pinned to it specifically, both to keep dispatch from ever falling through to a provider key this package also uses for other entries, and because it was the most reliable free Zen model available at measurement time."
       limits: "Per Zen's own docs (opencode.ai/docs/zen), this specific free model is 'available on OpenCode for a limited time' while the team collects feedback — it is promotional, not a permanent tier, and may require a real Zen API key (a paid, pay-as-you-go account) later. No numeric rate limit is published."
       card_required: false
+    token_limits:
+      note: "OpenCode Zen free model -- no published numeric rate limit; Zen's own docs call it promotional/limited-time availability."
     transports:
       # opencode 1.x, NOT the `opencode -p` of the abandoned pre-1.0 Go CLI that
       # used to shadow this name (that project is now Charm's `crush`). On 1.x
@@ -675,6 +774,8 @@ agents:
       description: "Kiro CLI authenticates with a Kiro account. The free tier includes a limited monthly credit allowance; paid plans raise it."
       limits: "Free-tier credits are capped per month and reset on the billing cycle."
       card_required: false
+    token_limits:
+      note: "Kiro account CLI -- capped by a monthly credit allowance, not numeric tpm/rpm/rpd."
     transports:
       edit_exists:
         cmd: "kiro-cli chat --no-interactive --trust-tools=fs_read,fs_write,execute_bash"
@@ -740,6 +841,8 @@ agents:
       description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
       limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
       card_required: false
+    token_limits:
+      note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
         cmd: "agy --dangerously-skip-permissions --model gemini-3.6-flash-high"
@@ -760,6 +863,8 @@ agents:
       description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
       limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
       card_required: false
+    token_limits:
+      note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
         cmd: "agy --dangerously-skip-permissions --model gemini-3.1-pro-high"
@@ -780,6 +885,8 @@ agents:
       description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
       limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
       card_required: false
+    token_limits:
+      note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
         cmd: "agy --dangerously-skip-permissions --model claude-sonnet-4-6"
@@ -800,6 +907,8 @@ agents:
       description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
       limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
       card_required: false
+    token_limits:
+      note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
         cmd: "agy --dangerously-skip-permissions --model claude-opus-4-6-thinking"
@@ -820,6 +929,8 @@ agents:
       description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
       limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
       card_required: false
+    token_limits:
+      note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
         cmd: "agy --dangerously-skip-permissions --model gpt-oss-120b-medium"
@@ -865,6 +976,8 @@ agents:
       description: "Codex CLI authenticates with a ChatGPT account rather than a metered API key. Plus, Pro, Team and Enterprise plans include Codex usage; there is no unauthenticated free tier."
       limits: "Usage limits follow the linked ChatGPT plan's Codex allowance."
       card_required: true
+    token_limits:
+      note: "ChatGPT-subscription CLI (OAuth) -- no numeric API tpm/rpm/rpd; capped by the subscription plan's weekly/5h usage allowance."
     transports:
       edit_exists:
         cmd: "codex exec --skip-git-repo-check"
@@ -891,6 +1004,9 @@ agents:
       description: "Codex CLI authenticates with a ChatGPT account rather than a metered API key. Plus, Pro, Team and Enterprise plans include Codex usage; there is no unauthenticated free tier."
       limits: "Usage limits follow the linked ChatGPT plan's Codex allowance."
       card_required: true
+    token_limits:
+      context_window: 400000
+      note: "272K max input / 128K max output of the 400K total. tpm/rpm aren't published in text form -- login-gated behind the OpenAI org settings page; tier is unlocked by cumulative spend, not a flat free number."
     transports:
       edit_exists:
         cmd: "codex exec --skip-git-repo-check -m gpt-5.4-mini"
@@ -920,6 +1036,12 @@ agents:
       description: "Claude Code authenticates with a claude.ai account rather than a metered API key. The free plan includes a limited Claude Code allowance; Pro and Max raise it."
       limits: "Usage limits follow the linked claude.ai plan's Claude Code allowance, which resets on a rolling window."
       card_required: false
+    token_limits:
+      context_window: 1000000
+      itpm: 2000000
+      otpm: 400000
+      rpm: 1000
+      note: "Anthropic Start tier. The itpm/otpm bucket is SHARED across the whole Opus 4.x family, not exclusive to 4-8. New orgs often start below this in an unpublished Evaluation tier."
     transports:
       edit_exists:
         cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-8"
@@ -961,6 +1083,12 @@ agents:
       description: "Claude Code authenticates with a claude.ai account rather than a metered API key. The free plan includes a limited Claude Code allowance; Pro and Max raise it."
       limits: "Usage limits follow the linked claude.ai plan's Claude Code allowance, which resets on a rolling window."
       card_required: false
+    token_limits:
+      context_window: 1000000
+      itpm: 2000000
+      otpm: 400000
+      rpm: 1000
+      note: "Anthropic Start tier. Sonnet has its own separate itpm/otpm bucket, not shared with Opus."
     transports:
       edit_exists:
         cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-sonnet-5"
@@ -988,6 +1116,12 @@ agents:
       description: "Claude Code authenticates with a claude.ai account rather than a metered API key. The free plan includes a limited Claude Code allowance; Pro and Max raise it."
       limits: "Usage limits follow the linked claude.ai plan's Claude Code allowance, which resets on a rolling window."
       card_required: false
+    token_limits:
+      context_window: 200000
+      itpm: 2000000
+      otpm: 400000
+      rpm: 1000
+      note: "Anthropic Start tier -- the best-confirmed numbers in this file (official doc, both context_window and itpm/otpm corroborated)."
     transports:
       edit_exists:
         cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-haiku-4-5-20251001"
