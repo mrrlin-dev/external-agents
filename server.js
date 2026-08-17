@@ -14,7 +14,7 @@ import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, classifyDispatchFailure, resolveEscalation, getStats } from "./lib/dispatch.js";
-import { pickAgents } from "./lib/pick.js";
+import { pickAgents, isAgentEnabled } from "./lib/pick.js";
 
 // Resolve agents.yaml relative to THIS module, never the process cwd. As an
 // MCP server, external-agents-mcp is spawned by the client (Codex/Claude) with
@@ -304,6 +304,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const sourceEntry = findAgent(agent_id);
     if (!sourceEntry) {
       throw new Error(`unknown agent: ${agent_id}`);
+    }
+    // Naming an id explicitly bypasses pickAgents' own kill-switch filter, so
+    // without this a disabled entry (operator toggle, or a corporate network
+    // policy the operator disabled it in response to) was still reachable by
+    // any caller that named it directly.
+    if (!isAgentEnabled(sourceEntry, readState())) {
+      throw new Error(`agent disabled: ${agent_id} (re-enable with the toggle UI, or \`external-agents toggle ${agent_id} --enabled\`)`);
     }
 
     let entry = sourceEntry;
