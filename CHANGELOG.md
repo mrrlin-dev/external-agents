@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.44.2] - 2026-08-17
+
+### Fixed
+
+- **`runDispatch` orphaned its detached CLI child when the parent runner was killed.** A parent SIGINT/SIGTERM to the Node dispatch wrapper no longer leaves the child process group running (observed live as a PPID=1 orphaned provider CLI after the wrapper exited) — the signal is now forwarded to the child's process group, cleanup is idempotent, and temporary parent-signal listeners are removed instead of leaking across dispatches.
+
 ## [0.44.1] - 2026-08-17
 
 ### Fixed
