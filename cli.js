@@ -21,7 +21,7 @@ import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.j
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState } from "./lib/state.js";
 import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult } from "./lib/dispatch.js";
-import { pickAgents, providerFamily } from "./lib/pick.js";
+import { pickAgents, providerFamily, isAgentEnabled } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
@@ -165,6 +165,13 @@ async function cmdDispatch(args, flags) {
 
   const src = findAgent(agentId);
   if (!src) die(`unknown agent: ${agentId}`, 3);
+  // A naked agent-id dispatch bypasses pickAgents entirely, so its own kill-switch
+  // filter never runs — naming an id explicitly used to be enough to reach a
+  // provider the operator had deliberately disabled (e.g. a corporate network
+  // policy blocking it outright). Refuse the same way pick does.
+  if (!isAgentEnabled(src, readState())) {
+    die(`agent disabled: ${agentId} (re-enable with: external-agents toggle ${agentId} --enabled)`, 5);
+  }
 
   let entry = src;
   let escalatedFrom;
