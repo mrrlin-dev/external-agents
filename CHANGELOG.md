@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-08-17
+
+### Added
+
+- **`agents.yaml` entries can now carry a `token_limits` block** — `context_window`, `tpm`/`itpm`/`otpm` (combined vs. direction-split tokens-per-minute), `tpd`, `rpm`, `rpd`, `concurrent` (concurrent-connection cap, e.g. DeepSeek), and a freeform `note` — so a picker (human or LLM orchestrator) can check a prompt's size against a model's real cap before dispatching instead of finding out via a live failure. Triggered by dispatching a 42KB prompt to `groq-gpt-oss-120b` and hitting Groq's free-tier 8000 TPM cap outright. Every field is populated only when that specific provider actually publishes that cap shape — never invented for a shape it doesn't use. Numbers are a 2026-08 best-effort snapshot, not a live poll; two Groq entries (`groq-llama-3.3-70b`, `groq-llama-3.1-8b-instant`) are flagged in their `note` as absent from Groq's live rate-limits page as of this research, possibly deprecated there.
+
 ## [0.42.2] - 2026-08-14
 
 ### Fixed
