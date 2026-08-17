@@ -93,7 +93,7 @@ Everything is also available from the terminal — `external-agents pick`, `disp
 | Provider | Entries | What you need |
 |---|---|---|
 | **Google AI Studio** | Gemini 3.6 Flash; Gemini 3.1 Pro (off — no free tier) | `GEMINI_API_KEY`, free tier |
-| **Groq** | Llama 3.3 70B, gpt-oss 120B, gpt-oss 20B, Llama 3.1 8B | `GROQ_API_KEY`, free tier |
+| **Groq** | gpt-oss 120B, gpt-oss 20B, Qwen3.6 27B | `GROQ_API_KEY`, free tier |
 | **OpenRouter** | 5 `:free` models incl. Nemotron Ultra & Super, Gemma 4, gpt-oss 20B | `OPENROUTER_API_KEY`, free tier |
 | **Antigravity** | Gemini Flash/Pro, Claude Sonnet 4.6, Claude Opus 4.6, gpt-oss 120B | `agy` CLI, logged in |
 | **Anthropic** | Claude Opus 4.8, Sonnet 5, Haiku 4.5 | `claude` CLI subscription |
@@ -154,7 +154,7 @@ That writes to `~/.local/state/external-agents/agents.local.yaml`, layered over 
 
 `pick_agents` defaults to `tier: "weak"` on purpose. **Most tasks don't need a frontier model.**
 
-Single-file edits, refactors, glue code, summaries, format conversions, well-scoped bug fixes, docstrings, test cases — a Gemini Flash, Groq Llama, DeepSeek, or OpenRouter `:free` model gets you the same correct answer as Claude Opus or Codex Pro, faster and for a fraction of the cost.
+Single-file edits, refactors, glue code, summaries, format conversions, well-scoped bug fixes, docstrings, test cases — a Gemini Flash, Groq gpt-oss, DeepSeek, or OpenRouter `:free` model gets you the same correct answer as Claude Opus or Codex Pro, faster and for a fraction of the cost.
 
 Reach for **strong tier** (Claude Opus, Codex, DeepSeek Reasoner, Nemotron Ultra) when the task is genuinely one of these:
 
