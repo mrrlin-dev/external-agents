@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-08-17
+
 ### Removed
 
 - **Groq's two Llama entries (`groq-llama-3.3-70b`, `groq-llama-3.1-8b-instant`)** — both now return `model_not_found` from `api.groq.com`; Groq has retired the chat-capable Llama family from its hosted catalog (`/openai/v1/models` lists only the `llama-prompt-guard-2` classifiers). Their `token_limits` notes had already flagged them as missing from Groq's live rate-limits page in 0.43.0; this confirms the deprecation.
@@ -11,6 +13,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 ### Added
 
 - **`groq-qwen3.6-27b`** — replaces the removed Llama entries in Groq's weak tier (131072-token context, `reasoning_effort` enum `none`/`default`, validated against the live API). `groq-gpt-oss-20b` also remains weak-tier on the same key.
+
+### Fixed
+
+- **The operator kill-switch (`enabled: false`) is now honoured on every dispatch path** — a direct `dispatch <agent_id>` from the CLI or the MCP tool named an id explicitly and bypassed `pickAgents`' filter, so a deliberately disabled entry was still reachable. The check is now a shared `isAgentEnabled()` in `lib/pick.js`, applied in `cli.js`'s `cmdDispatch`, the MCP dispatch tool, and `resolveEscalation`.
+- **A repeated `set-credential` no longer silently re-enables a disabled agent** — `enableAgentsAwaitingCredential` skipped an entry only when `state.json` already had `enabled: true`, so key rotation or a second setup pass flipped an explicit disable back on. It now skips whenever the operator has recorded a decision in either direction; the flip stays a one-time bootstrap, not a standing sync.
 
 ## [0.43.0] - 2026-08-17
 
