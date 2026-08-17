@@ -106,13 +106,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "Exclusion uses the same identity: filter.exclude_ids drops every entry serving the same " +
           "model as each named id (excluding gemini-3.6-flash-6 will NOT seat gemini-3.6-flash-5 " +
           "instead), and filter.exclude_providers matches by family, so 'google' covers google3..8. " +
-          "\n\nROUTING NOTE: default filter is tier='weak' — that is intentional. Most atomic tasks " +
-          "(single-file edits, refactors, glue code, summaries, format conversions, well-scoped fixes) " +
-          "get the same quality answer from a weak-tier free-tier model as from Claude Opus or " +
-          "Codex Pro, in a fraction of the time and cost. Reach for strong-tier (filter tier='strong') " +
-          "ONLY when the task actually needs deep reasoning: multi-step debugging, architecture " +
-          "decisions, ambiguous requirements, novel algorithms. Frontier ≠ better output for the " +
-          "long tail of routine work; often it is slower with no quality gain. Be smart, not lavish.",
+          "\n\nROUTING NOTE: omitting filter.tier defaults to tier='weak' here — enforced, not just " +
+          "advisory, so a forgotten tier can't silently draw a strong (costlier/slower) candidate " +
+          "instead. Most atomic tasks (single-file edits, refactors, glue code, summaries, format " +
+          "conversions, well-scoped fixes) get the same quality answer from a weak-tier free-tier " +
+          "model as from Claude Opus or Codex Pro, in a fraction of the time and cost. Reach for " +
+          "strong-tier by passing filter.tier='strong' explicitly, ONLY when the task actually needs " +
+          "deep reasoning: multi-step debugging, architecture decisions, ambiguous requirements, " +
+          "novel algorithms. Frontier ≠ better output for the long tail of routine work; often it is " +
+          "slower with no quality gain. Be smart, not lavish.",
         inputSchema: {
           type: "object",
           properties: {
@@ -274,9 +276,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === "pick_agents") {
     const args = request.params.arguments || {};
+    // The routing note in this tool's description ("default is tier='weak'")
+    // used to be advisory only — an omitted filter.tier fell through to
+    // pickAgents with no tier restriction at all, landing on whichever entry
+    // preference_order (set only on cheap/free weak entries, by convention,
+    // not by code) happened to sort first. That's an accident of registry
+    // data, not a guarantee: a caller that forgets filter.tier could just as
+    // easily draw a strong-tier model instead. Enforce the documented default
+    // here so a forgotten tier can't silently escalate cost/latency.
+    const filter = { ...(args.filter || {}) };
+    if (!filter.tier) filter.tier = "weak";
     const picked = pickAgents(REGISTRY, readState(), {
       n: args.n ?? 1,
-      filter: args.filter,
+      filter,
       min_distinct_providers: args.min_distinct_providers,
     });
     return {
