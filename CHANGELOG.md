@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.44.3] - 2026-08-17
+
+### Fixed
+
+- **The MCP `pick_agents` tool's documented "defaults to tier='weak'" routing note was advisory only, not enforced.** An omitted `filter.tier` fell through to the full, tier-unrestricted pool, sorted by `preference_order` — a field only ever set on cheap/free weak-tier entries by registry convention, never by code. A caller that forgot `filter.tier` could land a strong-tier, costlier/slower candidate whenever a weak sibling in the same provider family happened to be unhealthy. The handler now defaults `filter.tier` to `"weak"` in code when omitted; explicit `filter.tier='strong'` is unaffected.
+
 ## [0.44.2] - 2026-08-17
 
 ### Fixed
