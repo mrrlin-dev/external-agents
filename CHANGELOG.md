@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.44.4] - 2026-08-18
+
+### Fixed
+
+- **A numbered provider clone kept its stale `enabled` after the base it was cloned from was later disabled.** `/api/add_provider_key` clones a base entry by spreading its fields at CLONE time; if the base subsequently gets `enabled: false` in the registry (e.g. a provider drops free-tier access to a model), every clone created before that change keeps whatever `enabled` it was cloned with — undefined, i.e. "on" — forever. Reproduced live: `gemini-3.1-pro-preview-3` through `-8` predated the base's `enabled: false` (added in 0.31.0 when Gemini Pro left the free tier) and had no `enabled` key at all, so `pickAgents` kept seating them — one clone errored against Gemini's billing-required paid tier three times in a single day via a consensus review panel. `loadRegistry` now re-derives a numbered clone's `enabled` from its base by (provider family, model) identity on every load, filling the gap only when the clone has no explicit `enabled` of its own; a `state.json` per-key override still takes precedence, unchanged.
+
 ## [0.44.3] - 2026-08-17
 
 ### Fixed
