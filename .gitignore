@@ -28,3 +28,7 @@ tmp/
 
 # local CLI caches created by probing edit_exists CLIs during audit/dev
 .opencode/
+
+# Consensus-gate working files: review inputs and reports are per-session
+# scaffolding, not deliverables.
+.consensus/
