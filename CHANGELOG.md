@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Fixed
+
+- **An aider `edit_exists` dispatch attached repo files nobody declared, blowing the context window and leaking file contents to the provider.** aider's `preproc_user_input()` scans our own `--message` prompt for filenames before the first request, matching every whitespace-separated word against the entire git-tracked file list — by full path *or* by bare basename — and `--yes-always` auto-accepts each one, so any prompt mentioning `foo.js` shipped that whole file. Seen in production as a dispatch going from a 131k model limit to 594k tokens and failing every retry (surfaced misleadingly as `quota_exhausted`); reproduced deterministically, including a secret from an undeclared file reaching a third-party provider. Neither existing guard could stop it — `--map-tokens 0` governs the repo *map*, a different code path, and `MAX_TOTAL_FILE_BYTES` only ever counted the files we pass. A generated `.aiderignore` now narrows aider's view to exactly the declared `--file` paths, with the repo's own `.aiderignore` rules folded in last so they can still veto a declared path.
+- **An aider dispatch could write outside the files it was given.** aider's `allowed_to_edit()` auto-approves both "Create new file?" and "Allow edits to file that has not been added to the chat?" under `--yes-always`, and consults only gitignore — never `.aiderignore` — so the read-side allowlist above does not bound writes. No aider-side lever exists for this (no flag disables the prompts, and without `--yes-always` non-tty stdin makes them default to yes anyway), so containment is verified after the run instead: the worktree's dirty state is snapshotted before spawn — path, status, and a content hash, so a second edit to an already-dirty file cannot hide behind an unchanged status — compared afterwards against the declared paths, and a dispatch that exceeded its scope fails with the offending paths named. The caller's own uncommitted work is never blamed on the dispatch, and nothing is ever reverted.
+
+### Changed
+
+- **BREAKING (aider only): an aider `edit_exists` dispatch now requires at least one `--file`.** `--file` stays optional for every other `edit_exists` CLI, which can search its `--cwd`; aider cannot, having no search tool. It previously compensated by scraping filenames out of the prompt — the behaviour removed above — so a no-files aider run could now only start on an empty chat and exit 0 having changed nothing. It refuses up front instead. Callers dispatching aider without `--file` must declare the files it may edit; a declared path that does not exist yet is created.
+
 ## [0.44.4] - 2026-08-18
 
 ### Fixed
