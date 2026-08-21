@@ -4,6 +4,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.46.1] - 2026-08-21
+
+### Fixed
+
+- **`external-agents audit` (and the UI's per-row "Verify" button) reported agy entries as `errored_transient` with a `bubbletea: could not open TTY` crash, which read as a broken environment or a quota problem.** Root cause: `auditCliEntry` builds its probe command from an entry's bare `edit_exists.cmd`, but never applied `prompt_flag` — the transport field `runDispatch` already uses to insert `--print` immediately before the prompt, because agy's `--print` consumes the very next token as its own value (see 0.45.0's aider write-scope fix for the sibling case of a CLI eating a flag as its prompt). Without `--print`, agy silently booted its full interactive TUI instead of answering headless, and that TUI requires a real controlling terminal — the actual source of the TTY crash. `auditCliEntry` now inserts `prompt_flag` the same way `runDispatch` does. Live-verified: `external-agents audit --provider antigravity` went from 5/5 TTY crashes to 4/5 `healthy` plus one real, distinct upstream error.
+- **The same audit path garbled a CLI's JSON error body into a bare `"}"` hint** (observed on opencode, whose Zen backend returns a multi-line `{"name":"UnknownError","data":{"message":"...","ref":"..."}}` on failure) — the fallback hint extraction took "the last non-blank line," which for multi-line JSON is just the closing brace. It now pulls `.message` / `.error.message` (object or plain string) / `.data.message` out of a trailing JSON object first, scanning past any unrelated `{` that appears earlier in the output (e.g. a CLI's own "Loading {module}..." progress line), and falls back to the old last-line behavior only when there's no parseable JSON with a usable message.
+
+Both fixes are confined to the health-probe path (`audit` / UI "Verify") — no change to how a real dispatch runs. Consensus gate: run and converged (round 3/5, 4/4 pool reviewers responded, all APPROVE, 0 critical issues outstanding — 2 critical issues were raised and adjudicated across rounds 1-2, one accepted and fixed, one dismissed with cited evidence and the dismissal accepted by the raising reviewer in round 3).
+
 ## [0.46.0] - 2026-08-21
 
 > **BREAKING:** `claude-opus-4-8` and `codex-gpt-5.4-mini` no longer exist as
