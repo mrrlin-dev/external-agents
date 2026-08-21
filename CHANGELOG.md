@@ -4,6 +4,37 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-08-21
+
+> **BREAKING:** `claude-opus-4-8` and `codex-gpt-5.4-mini` no longer exist as
+> agent ids — dispatch by either id will fail with "unknown agent". See
+> **Changed** below for the replacements.
+
+### Changed
+
+- **`claude-opus-4-8` renamed to `claude-opus-5`** — Anthropic's newest Opus
+  tier. Live-confirmed with `claude --print --model claude-opus-5` and
+  `external-agents verify-read-only claude-opus-5`. `claude-sonnet-5` and
+  `claude-haiku-4-5` are unaffected (already on their current names; there is
+  no v5 Haiku yet). Antigravity's re-hosted Claude entries
+  (`agy-claude-sonnet-4-6`, `agy-claude-opus-4-6-thinking`) are also
+  unaffected — `agy models` confirms that provider does not expose a v5
+  Claude model yet.
+- **`codex-gpt-5.4-mini` renamed to `codex-gpt-5.6-luna`** — `codex debug
+  models` (no quota consumed) shows `gpt-5.4-mini` deprecated in-catalog with
+  `gpt-5.6-luna` named as its direct successor; the old `-codex`-suffixed
+  tiers this registry previously noted as unsupported are gone from the
+  catalog entirely. Re-verified live once a temporary account-wide usage cap
+  reset: `verify-read-only` passes, and an out-of-enum
+  `-c model_reasoning_effort=bogus` 400s naming the full supported set
+  (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`) — wider than
+  previously declared, so `effort_levels` was widened to match.
+- Neither rename changes dispatch behavior for anyone already using the new
+  ids; this is a hard rename, not an alias — matching this file's own
+  precedent of removing retired model ids outright (see the `claude-opus-4-7`
+  removal note in `agents.yaml`) rather than keeping a deprecated pointer
+  around.
+
 ## [0.45.0] - 2026-08-19
 
 > **BREAKING (aider only):** an aider `edit_exists` dispatch now requires at least one `--file`.

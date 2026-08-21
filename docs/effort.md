@@ -25,8 +25,9 @@ Requesting them narrows the usable pool, so use them only when you specifically 
 
 | Agents | Levels |
 |---|---|
-| `claude-opus-4-8`, `claude-sonnet-5`, `claude-haiku-4-5`, `kiro` | low, medium, high, xhigh, max |
-| `codex`, `codex-gpt-5.4-mini` | low, medium, high, xhigh |
+| `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`, `kiro` | low, medium, high, xhigh, max |
+| `codex` | low, medium, high, xhigh |
+| `codex-gpt-5.6-luna` | none, minimal, low, medium, high, xhigh, max |
 | `openrouter-*` (nemotron ultra/super, gpt-oss-20b-free, north-mini-code-free) | none, minimal, low, medium, high, xhigh, max |
 | `gemini-*` | none, minimal, low, medium, high |
 | `groq-gpt-oss-120b`, `groq-gpt-oss-20b` | none, default, low, medium, high |

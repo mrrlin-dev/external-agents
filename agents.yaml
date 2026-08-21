@@ -929,14 +929,21 @@ agents:
   # dispatch that failed. Which of the two is "primary" is decided by the
   # consumer (mrrlin will make this operator-configurable in a later slice);
   # both are registered here so either can serve.
-  # Codex family — every entry is explicit-model (no aliases). Live-verified
-  # against a ChatGPT-plan account: the `-codex` family models
-  # (gpt-5.4-codex, gpt-5.3-codex) return "not supported when using Codex with
-  # a ChatGPT account" and gpt-5.6-terra returns "requires a newer version of
-  # Codex". Only gpt-5.4-mini works on the free ChatGPT tier — keep just that
-  # explicit entry plus the `codex` default (which lets the CLI choose whatever
-  # the operator's plan actually exposes). Users on an OpenAI API-key plan can
-  # add the -codex tiers back via `external-agents add-model`.
+  # Codex family — every entry is explicit-model (no aliases). The
+  # `-codex`-suffixed tiers (gpt-5.4-codex, gpt-5.3-codex) that used to 404 on
+  # a ChatGPT-plan account are gone from the catalog entirely now — Codex CLI
+  # (codex-cli 0.147.0, `codex debug models`, checked 2026-08-19) lists
+  # gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna / gpt-5.5 as current, and marks
+  # gpt-5.4 / gpt-5.4-mini as deprecated with an explicit in-catalog migration
+  # target each (gpt-5.4 → gpt-5.6-terra, gpt-5.4-mini → gpt-5.6-luna).
+  # `codex-gpt-5.4-mini` below was renamed to `codex-gpt-5.6-luna` on that
+  # basis. Whether gpt-5.6-luna itself dispatches on the free ChatGPT tier
+  # could NOT be live-confirmed at rename time — the account had already hit
+  # its usage cap (resets ~2026-08-21) on the very same tier, so the identical
+  # error would have shown for gpt-5.4-mini too; re-run
+  # `external-agents verify-read-only codex-gpt-5.6-luna` once quota resets.
+  # Users on an OpenAI API-key plan can add other tiers back via
+  # `external-agents add-model`.
   #
   # `model: default` is intentionally NOT a real model id — it means "whatever
   # `codex exec` resolves to on this account", which varies by plan/tier and
@@ -971,9 +978,9 @@ agents:
       # Verified with `external-agents verify-read-only codex`.
       read_only: "codex exec --skip-git-repo-check --sandbox read-only"
 
-  - id: codex-gpt-5.4-mini
+  - id: codex-gpt-5.6-luna
     provider: openai
-    model: gpt-5.4-mini
+    model: gpt-5.6-luna
     tier: weak
     tags: [quick]
     auth: "cli:codex"
@@ -989,23 +996,32 @@ agents:
       note: "272K max input / 128K max output of the 400K total. tpm/rpm aren't published in text form -- login-gated behind the OpenAI org settings page; tier is unlocked by cumulative spend, not a flat free number."
     transports:
       edit_exists:
-        cmd: "codex exec --skip-git-repo-check -m gpt-5.4-mini"
+        cmd: "codex exec --skip-git-repo-check -m gpt-5.6-luna"
         effort_param: flag
-        effort_levels: [low, medium, high, xhigh]
+        effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_flag: "-c model_reasoning_effort={level}"
         effort_verified: validated
+      # Renamed 2026-08-19 from codex-gpt-5.4-mini (deprecated in-catalog in
+      # favor of gpt-5.6-luna per `codex debug models`). Re-verified live
+      # once the account's usage cap reset on 2026-08-19: `-c
+      # model_reasoning_effort=bogus` returned a 400 naming the full enum
+      # ('none','minimal','low','medium','high','xhigh','max'), proving the
+      # flag is parsed and giving the complete supported list (wider than the
+      # 4 levels the prior codex-gpt-5.4-mini entry had only spot-checked).
       # See codex's read_only entry above for why --sandbox read-only is
-      # trustworthy here. Verified with
-      # `external-agents verify-read-only codex-gpt-5.4-mini`.
-      read_only: "codex exec --skip-git-repo-check -m gpt-5.4-mini --sandbox read-only"
+      # trustworthy here; `external-agents verify-read-only codex-gpt-5.6-luna`
+      # also passed post-reset ({"ok":true,"verified":true}).
+      read_only: "codex exec --skip-git-repo-check -m gpt-5.6-luna --sandbox read-only"
 
-  # Claude family — subscription-backed. All non-Fable Claude 5 / Opus 4.x
-  # models. `claude-opus-4-8` is the newest strong; `claude-haiku-4-5` is
-  # the cheapest weak-tier for atomic-executor + /consensus terminal picks.
-  # Fable is intentionally excluded.
-  - id: claude-opus-4-8
+  # Claude family — subscription-backed. `claude-opus-5` is the newest
+  # strong (renamed 2026-08-19 from `claude-opus-4-8` — Claude Opus 5 is a
+  # drop-in upgrade at the same subscription tier; live-confirmed with
+  # `claude --print --model claude-opus-5` before the rename landed).
+  # `claude-haiku-4-5` is the cheapest weak-tier for atomic-executor +
+  # /consensus terminal picks. Fable is intentionally excluded.
+  - id: claude-opus-5
     provider: anthropic
-    model: claude-opus-4-8
+    model: claude-opus-5
     tier: strong
     tags: []
     auth: "cli:claude"
@@ -1021,15 +1037,15 @@ agents:
       itpm: 2000000
       otpm: 400000
       rpm: 1000
-      note: "Anthropic Start tier. The itpm/otpm bucket is SHARED across the whole Opus 4.x family, not exclusive to 4-8. New orgs often start below this in an unpublished Evaluation tier."
+      note: "Anthropic Start tier. Unlike the old Opus 4.x family (where this itpm/otpm bucket was shared across 4.6/4.7/4.8), Claude Opus 5 has its OWN separate rate-limit bucket, not shared with any Opus 4.x entry. New orgs often start below this in an unpublished Evaluation tier."
     transports:
       edit_exists:
-        cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-8"
+        cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-5"
         effort_param: flag
         effort_levels: [low, medium, high, xhigh, max]
         effort_flag: "--effort {level}"
         effort_verified: validated
-      # Verified with `external-agents verify-read-only claude-opus-4-8`.
+      # Verified with `external-agents verify-read-only claude-opus-5`.
       # NOT `--allowedTools Read,Grep,Glob` — that ADDS permissions on top of
       # the default set rather than restricting to it, and still writes. The
       # trailing `--` is required: without it the variadic --disallowedTools
@@ -1042,12 +1058,13 @@ agents:
       # fields until `--effort {level}` has been verified to land before `--`
       # rather than after it.
       read_only:
-        cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-4-8 --disallowedTools Write,Edit,NotebookEdit,Bash --"
+        cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-opus-5 --disallowedTools Write,Edit,NotebookEdit,Bash --"
 
-  # claude-opus-4-7 removed: near-duplicate of 4-8 on a SHARED subscription
-  # quota bucket — exposing both gives zero extra throughput, only an arbitrary
-  # pick between adjacent versions. (Per-model-quota providers like Google keep
-  # their near-dups because there each model is its own free bucket.)
+  # claude-opus-4-7 and claude-opus-4-8 removed: claude-opus-5 supersedes both
+  # on the SAME subscription quota bucket — exposing an old alongside the new
+  # gives zero extra throughput, only an arbitrary pick between adjacent
+  # versions. (Per-model-quota providers like Google keep their near-dups
+  # because there each model is its own free bucket.)
 
   - id: claude-sonnet-5
     provider: anthropic
@@ -1077,7 +1094,7 @@ agents:
         effort_flag: "--effort {level}"
         effort_verified: validated
       # Verified with `external-agents verify-read-only claude-sonnet-5`. See
-      # claude-opus-4-8's read_only entry above for why --allowedTools is
+      # claude-opus-5's read_only entry above for why --allowedTools is
       # wrong here and why no effort_levels are declared.
       read_only:
         cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-sonnet-5 --disallowedTools Write,Edit,NotebookEdit,Bash --"
@@ -1110,7 +1127,7 @@ agents:
         effort_flag: "--effort {level}"
         effort_verified: validated
       # Verified with `external-agents verify-read-only claude-haiku-4-5`. See
-      # claude-opus-4-8's read_only entry above for why --allowedTools is
+      # claude-opus-5's read_only entry above for why --allowedTools is
       # wrong here and why no effort_levels are declared.
       read_only:
         cmd: "env -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY claude --print --model claude-haiku-4-5-20251001 --disallowedTools Write,Edit,NotebookEdit,Bash --"
