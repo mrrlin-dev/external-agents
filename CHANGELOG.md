@@ -4,6 +4,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI's MCP smoke step asserted the opposite of the desired behaviour and had failed on every run since it was added.** A stdio MCP server exits as soon as its transport closes — EOF on stdin means no client, so there is nothing to serve — and a workflow step's stdin is `/dev/null`, i.e. EOF immediately. Measured: with stdin at `/dev/null` the server exits after ~290 ms; with the pipe held open it runs until killed. The step now holds the pipe open the way a real MCP host does. It also waits for the server's stdio banner instead of sampling once at a fixed two-second offset (which asserted a boot *speed* and failed a merely slow runner), and then confirms the process is still up — catching a server that announces itself and immediately dies, which the old check could not detect at all.
+- **The two process-group tests were timing races and could report either answer wrongly.** Both spawned a descendant that wrote a marker file after a fixed delay (120ms / 250ms), killed the group, slept a little longer, and asserted the marker was absent. Too slow and the kill lands after the marker is already written, so a WORKING group kill fails — that is what made `runDispatch forwards parent SIGTERM to the subprocess group` go red in a loaded full-suite run while passing 3/3 in isolation. Too slow the other way and the descendant has not booted when the assertion runs, so a BROKEN group kill passes; `runDispatch timeout terminates the subprocess group` also used a 30ms dispatch timeout that could fire before the fixture had spawned anything to kill, exercising nothing at all. Both now record the descendant's PID and wait for it to stop existing, which is what "terminates the process group" actually claims and has neither failure mode. Verified by disabling the group kill in `terminate()`: both tests fail, as they must. Three consecutive full-suite runs on a machine at load average 25-70: clean.
+
 ## [0.47.0] - 2026-08-26
 
 ### Fixed

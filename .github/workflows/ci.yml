@@ -33,15 +33,46 @@ jobs:
         run: node --test lib/*.test.js
       - name: Registry loads
         run: node -e 'import("./lib/registry.js").then(m => { const r = m.loadRegistry("./agents.yaml"); if (!r.agents.length) throw new Error("empty registry"); console.log(`loaded ${r.agents.length} agents`); })'
-      - name: MCP server starts (2s smoke)
+      - name: MCP server starts
         run: |
-          timeout 3 node server.js &
+          # A stdio MCP server exits as soon as its transport closes, and that is
+          # correct behaviour: EOF on stdin means no client, so there is nothing
+          # left to serve. A workflow step's stdin is /dev/null, i.e. EOF at
+          # once — so this step used to assert the OPPOSITE of what the server
+          # should do, and failed on every run since the workflow was added.
+          # Measured: with stdin at /dev/null the server exits after ~290ms;
+          # with the pipe held open it runs until killed.
+          #
+          # `sleep` stands in for the client holding the pipe open, which is what
+          # a real MCP host does. $! is the last command of the pipeline, i.e.
+          # `timeout`, which is the process worth polling.
+          LOG="${RUNNER_TEMP:-/tmp}/mcp-smoke.log"
+          sleep 20 | timeout 15 node server.js > "$LOG" 2>&1 &
           BG=$!
-          sleep 2
-          if kill -0 $BG 2>/dev/null; then
-            echo "✓ server alive after 2s"
-            kill $BG 2>/dev/null || true
-          else
-            echo "✗ server exited early" >&2
+
+          # WAIT for the banner rather than sampling once at a fixed offset. The
+          # old step slept two seconds and looked once, which asserts a boot
+          # SPEED: on a contended runner `node` plus the SDK import can take
+          # longer than that, and the check fails for a server that was merely
+          # slow. This loop bounds a genuine hang instead, and a healthy run
+          # leaves it in a few hundred milliseconds.
+          for _ in $(seq 1 100); do
+            grep -q "MCP server running on stdio" "$LOG" && break
+            sleep 0.1
+          done
+          if ! grep -q "MCP server running on stdio" "$LOG"; then
+            echo "✗ server never announced itself on stdio within 10s" >&2
+            cat "$LOG" >&2
             exit 1
           fi
+
+          # Announced AND still running: catches a server that prints its banner
+          # and then dies, which the banner check alone would pass.
+          sleep 1
+          if ! kill -0 $BG 2>/dev/null; then
+            echo "✗ server exited right after announcing itself" >&2
+            cat "$LOG" >&2
+            exit 1
+          fi
+          echo "✓ server announced itself on stdio and stayed up"
+          kill $BG 2>/dev/null || true
