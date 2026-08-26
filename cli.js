@@ -19,8 +19,8 @@
 //   probe <agent-id> → probes one agent, prints new state JSON
 import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.js";
 import yaml from "js-yaml";
-import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState } from "./lib/state.js";
-import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult } from "./lib/dispatch.js";
+import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown, deriveDisplayState } from "./lib/state.js";
+import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult, shouldPersistOutcome, repoProvenance } from "./lib/dispatch.js";
 import { pickAgents, providerFamily, isAgentEnabled } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
@@ -29,7 +29,7 @@ import { writeText } from "./lib/stream-write.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import readline from "node:readline";
 
 // CLI + MCP server share the same env-loading logic — see lib/credentials.js.
@@ -46,7 +46,7 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 // taking parser turns `dispatch <id> --json "prompt"` into {json:"prompt"} and
 // eats the positional — the prompt vanishes ("missing prompt"). Same latent
 // trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
-const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force", "stream", "enabled", "disabled"]);
+const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force", "stream", "enabled", "disabled", "include-disabled"]);
 const ARRAY_FLAGS = new Set(["file"]);
 const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh", "max"]);
 function parseArgs(argv) {
@@ -173,6 +173,25 @@ async function cmdDispatch(args, flags) {
     die(`agent disabled: ${agentId} (re-enable with: external-agents toggle ${agentId} --enabled)`, 5);
   }
 
+  // --require-base: refuse to dispatch when the checkout is not the base the
+  // caller expected. The failure this prevents is not hypothetical — a worker
+  // pointed at a cwd sitting a couple hundred commits behind reviews code that
+  // no longer exists upstream, reports it accurately, and gets dismissed as
+  // making things up. runAny always TELLS the worker where it is; this is for
+  // when the caller wants that to be a precondition rather than a note.
+  //
+  // Checked here, before escalation resolution and before last_used_at is
+  // stamped, so a refusal leaves no trace: nothing was dispatched, so nothing
+  // should look as though it was.
+  //
+  // Off by default and never inferred. A stale checkout is sometimes exactly
+  // what you meant to inspect, and a tool that decides that for you is worse
+  // than one that stays quiet.
+  if (flags["require-base"]) {
+    if (!flags.cwd) die("--require-base needs --cwd: there is no checkout to check without one", 2);
+    assertRequiredBase(String(flags.cwd), String(flags["require-base"]));
+  }
+
   let entry = src;
   let escalatedFrom;
   if (flags.pro) {
@@ -257,17 +276,70 @@ async function cmdDispatch(args, flags) {
       text: result.output,
       workdir: result.workdir,
       files: result.files,
+      // Which checkout produced this. A programmatic caller comparing two
+      // workers' answers needs to know they read the same tree before it
+      // treats a disagreement as a disagreement about the code.
+      repo: result.provenance ?? null,
     };
     if (escalatedFrom) payload.escalated_from = escalatedFrom;
     await writeText(process.stdout, JSON.stringify(payload) + "\n");
   } else {
     await writeText(process.stdout, result.output);
     const trailer = { agent_id: entry.id, outcome, exit_code: result.exitCode, duration_ms: result.durationMs, workdir: result.workdir, files: result.files };
+    if (result.provenance?.head) {
+      trailer.repo = {
+        branch: result.provenance.branch,
+        head: result.provenance.short,
+        behind: result.provenance.behind,
+        dirty: result.provenance.dirty,
+      };
+    }
     if (escalatedFrom) trailer.escalated_from = escalatedFrom;
     await writeText(process.stderr, "__EXTERNAL_AGENTS_TRAILER__ " + JSON.stringify(trailer) + "\n");
   }
 
   process.exitCode = outcome === "success" ? 0 : (outcome === "quota_exhausted" ? 4 : 1);
+}
+
+// The --require-base check. Two distinct ways this fails, and they need
+// different words or the operator just sees "no" and starts guessing:
+//   - the ref does not resolve in this repo at all — usually origin/main that
+//     was never fetched into a fresh clone or worktree;
+//   - it resolves, but HEAD does not contain it: the checkout is behind, or has
+//     diverged onto another lineage. That is the stale-worktree case, and the
+//     error reports how far, because "195 behind" is the number that explains
+//     why the report you are about to get would have described other code.
+//
+// Passing means HEAD contains the base. Being AHEAD of it is fine — the base is
+// a floor, not an equality check; a task branch with work on top of origin/main
+// is the normal case, not a violation.
+//
+// Reads only. It never fetches: a dispatch that silently mutated the caller's
+// repo to satisfy its own precondition would be a far nastier surprise than
+// the stale checkout it was guarding against. The counts are therefore
+// relative to refs already on disk, and the error says so.
+function assertRequiredBase(cwd, baseRef) {
+  const prov = repoProvenance(cwd);
+  if (!prov) die(`--require-base ${baseRef}: ${cwd} is not inside a git repository`, 2);
+  if (!prov.head) die(`--require-base ${baseRef}: ${prov.root} has no commits`, 2);
+
+  const git = (args) => spawnSync("git", ["-C", prov.root, ...args], { encoding: "utf-8", timeout: 5000 });
+  const resolved = git(["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`]);
+  if (resolved.status !== 0 || !(resolved.stdout || "").trim()) {
+    die(`--require-base ${baseRef}: that ref does not resolve in ${prov.root} (fetch it first: git -C ${prov.root} fetch origin)`, 6);
+  }
+  const baseSha = resolved.stdout.trim();
+
+  if (git(["merge-base", "--is-ancestor", baseSha, prov.head]).status !== 0) {
+    const counts = git(["rev-list", "--left-right", "--count", `${baseSha}...${prov.head}`]);
+    const drift = counts.status === 0 ? ` (${counts.stdout.trim().replace(/\s+/, " behind, ")} ahead, as of the last fetch)` : "";
+    die(
+      `--require-base ${baseRef}: refusing to dispatch — ${prov.root} is on ` +
+      `${prov.detached ? `detached ${prov.short}` : `${prov.branch} @ ${prov.short}`}, which does not contain ${baseRef}${drift}. ` +
+      `Anything the agent reports would be about a different version of this project than you asked about.`,
+      6,
+    );
+  }
 }
 
 // Show a hint line at the bottom of status/UI when the audit hasn't run
@@ -296,17 +368,41 @@ function cmdStatus(flags) {
   // needs_auth when an env var is absent, healthy when present, and
   // not_installed for a missing CLI binary — matches what `external-agents
   // probe <id>` would actually find, without a live API round-trip.
-  const rows = REGISTRY.agents.map((e) => state[e.id] ? { ...e, ...state[e.id] } : { ...e, ...probeInstalled(e) });
+  // `state` and `enabled` answer two different questions and the table used to
+  // show only the first, so a switched-off entry rendered as a bare "healthy"
+  // — true (its key works) and useless (nothing will ever dispatch to it).
+  // Both registry-level `enabled: false` (paid entries, DeepSeek) and the
+  // operator toggle land in the same column.
+  //
+  // deriveDisplayState is applied here for the same reason the dashboard
+  // applies it: a record whose cooldown has already elapsed is no longer
+  // binding, and printing the expired verdict makes the pool look worse than
+  // it is.
+  const rows = REGISTRY.agents.map((e) => {
+    const merged = state[e.id] ? { ...e, ...state[e.id] } : { ...e, ...probeInstalled(e) };
+    return { ...deriveDisplayState(merged), enabled: isAgentEnabled(e, state) };
+  });
   if (flags.json) {
     console.log(JSON.stringify(rows, null, 2));
     return;
   }
   const w = 42;
-  console.log(`${"agent".padEnd(w)} ${"state".padEnd(18)} ${"tier".padEnd(7)} tags`);
-  console.log("-".repeat(96));
+  console.log(`${"agent".padEnd(w)} ${"state".padEnd(18)} ${"use".padEnd(4)} ${"tier".padEnd(7)} tags`);
+  console.log("-".repeat(101));
   for (const r of rows) {
     const tagsStr = (r.tags || []).join(",");
-    console.log(`${r.id.padEnd(w)} ${(r.state || "?").padEnd(18)} ${(r.tier || "-").padEnd(7)} ${tagsStr}`);
+    console.log(`${r.id.padEnd(w)} ${(r.state || "?").padEnd(18)} ${(r.enabled ? "on" : "OFF").padEnd(4)} ${(r.tier || "-").padEnd(7)} ${tagsStr}`);
+  }
+  const off = rows.filter((r) => !r.enabled);
+  if (off.length) {
+    // Capped the same way outOfScopeReason caps its file list: one API key per
+    // provider clone means a single switched-off model can contribute eight ids,
+    // and a summary that wraps three terminal lines stops being a summary.
+    const shown = off.slice(0, 8).map((r) => r.id).join(", ");
+    const more = off.length > 8 ? ` (+${off.length - 8} more)` : "";
+    console.log();
+    console.error(`${off.length} entr${off.length === 1 ? "y is" : "ies are"} switched off and will never be picked or dispatched, whatever their state column says: ${shown}${more}`);
+    console.error(`turn one on with: external-agents toggle <agent-id> --enabled`);
   }
   const hint = auditFreshnessHint(rows);
   if (hint) {
@@ -505,12 +601,34 @@ function cmdInit(flags) {
 async function cmdAudit(flags) {
   const providerFilter = flags.provider ? String(flags.provider) : null;
   const asJson = flags.json === true;
-  const entries = REGISTRY.agents.filter((a) =>
-    (!providerFilter || a.provider === providerFilter) &&
-    (a.transports?.generate_new?.url || a.transports?.edit_exists)
-  );
+  const includeDisabled = flags["include-disabled"] === true;
+  const auditState = readState();
+  // A disabled entry cannot be dispatched — pick hides it and a by-id dispatch
+  // refuses it — so auditing one buys nothing and is not free: `audit` is the
+  // path that spends a REAL round-trip, and for a prepaid provider (DeepSeek)
+  // that is money spent proving an agent nobody can call is reachable. Worse,
+  // it then writes `healthy` next to an entry that is switched off, which is
+  // exactly the reading that makes a pool look larger than it is.
+  //
+  // --include-disabled is the escape hatch for the one case that matters: you
+  // are deciding whether to turn something back on and want to know if it
+  // still works first.
+  const skippedDisabled = [];
+  const entries = REGISTRY.agents.filter((a) => {
+    if (providerFilter && a.provider !== providerFilter) return false;
+    if (!(a.transports?.generate_new?.url || a.transports?.edit_exists)) return false;
+    if (!includeDisabled && !isAgentEnabled(a, auditState)) {
+      skippedDisabled.push(a.id);
+      return false;
+    }
+    return true;
+  });
   if (entries.length === 0) {
-    die(`audit: no entries match${providerFilter ? ` provider=${providerFilter}` : ""}`, 3);
+    die(
+      `audit: no enabled entries match${providerFilter ? ` provider=${providerFilter}` : ""}` +
+      (skippedDisabled.length ? ` (${skippedDisabled.length} disabled entr${skippedDisabled.length === 1 ? "y" : "ies"} skipped; --include-disabled to audit them anyway)` : ""),
+      3,
+    );
   }
 
   const results = [];
@@ -536,30 +654,27 @@ async function cmdAudit(flags) {
           v.ok            ? `verified (${v.latencyMs}ms)${hasApi ? "" : " (cli)"}`
           : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
           : `HTTP ${v.status || "?"}`;
-        // quota_exhausted/rate_limited from THIS audit path used to never
-        // record cooldown_until (only an actual dispatch failure did), so
-        // pick()'s cooldown-expiry check had nothing to expire and the UI
-        // had nothing to show. v.reset_at (parsed Retry-After / "resets in
-        // Xh" text) wins when available; otherwise the same flat 1-hour
-        // fallback the dispatch-failure path already uses. `source` tags
-        // WHICH of those it was — same "error_body"/"fallback_ttl" values
-        // the dispatch-failure path already writes — so the UI can mark a
-        // fallback guess as an estimate instead of presenting it as fact.
-        const cooldownSource = v.reset_at != null ? "error_body" : "fallback_ttl";
-        const cooldown_until =
-          (outcome === "quota_exhausted" || outcome === "rate_limited")
-            ? (v.reset_at ?? (Math.floor(Date.now() / 1000) + 3600))
-            : undefined;
-        const existing = readState()[entry.id] || {};
-        writeState({
-          [entry.id]: mergeAuditState(existing, {
-            outcome,
-            note,
-            checked: Math.floor(Date.now() / 1000),
-            cooldown_until,
-            source: cooldownSource,
-          }),
-        });
+        // Which outcomes carry an expiry, and how long, now lives in
+        // auditCooldown (lib/state.js) — the dashboard's /api/audit ran a
+        // second copy of this expression and the two had to be kept in step
+        // by hand.
+        const { cooldown_until, source: cooldownSource } = auditCooldown(outcome, v);
+        // "probe_error" means our own shell failed, not the agent. Persisting
+        // it would blame the agent for our PATH and — since any non-healthy
+        // record blocks pick until it expires — pull a working entry out of
+        // rotation. Leave whatever state.json already says alone.
+        if (shouldPersistOutcome(outcome)) {
+          const existing = readState()[entry.id] || {};
+          writeState({
+            [entry.id]: mergeAuditState(existing, {
+              outcome,
+              note,
+              checked: Math.floor(Date.now() / 1000),
+              cooldown_until,
+              source: cooldownSource,
+            }),
+          });
+        }
         out.push({ id: entry.id, provider: entry.provider, model: entry.model, outcome, status: v.status || null, note });
       }
       return out;
@@ -569,7 +684,7 @@ async function cmdAudit(flags) {
 
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
   if (asJson) {
-    console.log(JSON.stringify({ elapsed_s: parseFloat(elapsed), results }, null, 2));
+    console.log(JSON.stringify({ elapsed_s: parseFloat(elapsed), results, skipped_disabled: skippedDisabled }, null, 2));
     return;
   }
   // Human-readable table.
@@ -577,7 +692,7 @@ async function cmdAudit(flags) {
   const w = { id: 34, provider: 12, outcome: 20, note: 60 };
   console.log(pad("agent", w.id) + pad("provider", w.provider) + pad("verdict", w.outcome) + "note");
   console.log("-".repeat(w.id + w.provider + w.outcome + w.note));
-  const sym = { healthy: "✓", needs_auth: "⚠", model_unavailable: "✗", rate_limited: "⏳", quota_exhausted: "⏳", errored_transient: "?" };
+  const sym = { healthy: "✓", needs_auth: "⚠", model_unavailable: "✗", rate_limited: "⏳", quota_exhausted: "⏳", errored_transient: "?", probe_error: "!" };
   for (const r of results) {
     console.log(
       pad(r.id, w.id) +
@@ -589,6 +704,12 @@ async function cmdAudit(flags) {
   const counts = results.reduce((acc, r) => (acc[r.outcome] = (acc[r.outcome] || 0) + 1, acc), {});
   console.log();
   console.log(`audited ${results.length} in ${elapsed}s — ${Object.entries(counts).map(([k, v]) => `${k}:${v}`).join(", ")}`);
+  if (counts.probe_error) {
+    console.error(`${counts.probe_error} entr${counts.probe_error === 1 ? "y" : "ies"} could not be probed at all (the command failed to execute) — their stored state was left untouched. Usually a PATH problem in the process running the audit.`);
+  }
+  if (skippedDisabled.length) {
+    console.error(`skipped ${skippedDisabled.length} disabled entr${skippedDisabled.length === 1 ? "y" : "ies"}: ${skippedDisabled.join(", ")} — pass --include-disabled to audit them.`);
+  }
 }
 
 // Append a locally-authored agent to the local overlay yaml. Minimum viable:
@@ -680,7 +801,7 @@ switch (subcmd) {
        (--exclude/--exclude-providers cascade to API-key clones: excluding one id drops every
         entry serving the same model; providers match by family, so \`google\` covers google3..8)
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
-  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--file path[:lines]] "<prompt>"
+  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--require-base <ref>] [--file path[:lines]] "<prompt>"
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
        (--effort = reasoning depth. Use \`high\` for planning, design and review;
         omit it for mechanical edits and lookups — the provider's own default applies.)
@@ -688,6 +809,10 @@ switch (subcmd) {
        (--file = essential context for generate_new; optional for edit_exists because direct CLIs can read --cwd; repeatable; path:10-50 for line range; paths relative to --cwd)
        (ALWAYS pass --cwd with --file: it is the containment root. Without it paths resolve against
         the current process cwd, so a file outside that tree fails the dispatch instead of attaching.)
+       (--require-base = refuse to dispatch unless the --cwd checkout contains <ref>, e.g. origin/main.
+        Guards against sending a worker at a stale worktree, whose accurate report about old code
+        then reads as a hallucination. Never fetches; compares against refs already on disk.
+        Exits 6 when the checkout is wrong, 2 on usage errors. Being AHEAD of <ref> is fine.)
   status [--json]
   probe <agent-id>
   verify-read-only <agent-id>  # runs the entry's declared read_only cmd against a canary file; exits 1 unless it's provably non-writing
@@ -696,7 +821,9 @@ switch (subcmd) {
   ui [--port N] [--host H] [--no-open]   # local dashboard (auto-opens in browser; use --no-open for SSH/tmux)
   init                                    # alias for 'ui' — kept for backward compat
   set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin
-  audit [--provider P] [--json]    # force API round-trip for every registry entry (or just PROVIDER); writes state.json outcomes (healthy / needs_auth / model_unavailable / rate_limited)
+  audit [--provider P] [--include-disabled] [--json]
+                                   # force API round-trip for every ENABLED registry entry (or just PROVIDER); writes state.json outcomes (healthy / needs_auth / model_unavailable / rate_limited)
+                                   # disabled entries are skipped — they cannot be dispatched, and for prepaid providers auditing them spends real money; --include-disabled overrides
   add-model --id ID --provider P --url URL --model M --env ENV_VAR [--tier weak|strong] [--tags a,b]
                                    # add a locally-authored agent to ~/.local/state/external-agents/agents.local.yaml (merged over the bundled registry)`);
     process.exit(subcmd ? 0 : 2);

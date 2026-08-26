@@ -78,6 +78,8 @@ Two MCP tools, available automatically after setup:
 
   Pass `cwd` (an existing directory — a git worktree, say) and a direct CLI will inspect and edit files in place. `cwd` does **not** grant filesystem access to HTTP-based models; give those context with `files` instead. When `cwd` is a git repo, the `files` list that comes back is the git-changed set, not the whole tree.
 
+  A `cwd` that is a git repo also gets a short **provenance header** prepended to the prompt — branch, commit and subject, drift versus upstream, whether the worktree is dirty — and the same facts come back to you as `repo`. This is what stops a worker pointed at a stale checkout from producing an accurate report about code that is no longer there and having it read as a hallucination. It's read-only and never fetches. If you want that to be a hard precondition rather than a note, `external-agents dispatch --require-base origin/main` refuses to dispatch at all when the checkout doesn't contain that ref — exit 6 for a wrong checkout, 2 for a usage error. Being *ahead* of the ref is fine; the base is a floor, not an equality check.
+
 - **`pick_agents(n, min_distinct_providers)`** — ask for N healthy agents from N different providers. This is the primitive for fan-out: jury-style review, self-consistency checks, your own consensus loop.
 
 Both tools carry the routing guidance below in their descriptions, so any model reading the schema at runtime picks up the same bias.
@@ -119,8 +121,9 @@ Missing a provider? [Suggest it](https://github.com/mrrlin-dev/external-agents/i
 Providers deprecate models, free tiers rotate, keys expire. The bundled registry tells you what *exists*; only a real call tells you what **your account** can still reach.
 
 ```bash
-external-agents audit                 # every entry with an HTTP transport
+external-agents audit                 # every enabled entry with an HTTP transport
 external-agents audit --provider google   # just one bucket
+external-agents audit --include-disabled  # include switched-off entries too
 ```
 
 One round-trip per entry, concurrent per provider so you don't trip rate limits, and the verdicts are written to `state.json` — so the dashboard and dispatch immediately reflect ground truth:
@@ -129,6 +132,10 @@ One round-trip per entry, concurrent per provider so you don't trip rate limits,
 - `⚠ needs_auth` — 401/403, paste or refresh the key
 - `✗ model_unavailable` — key is fine, this model isn't on your tier
 - `⏳ rate_limited` — hit the current limit, will recover
+- `? errored_transient` — something went wrong once; expires by itself after 15 minutes
+- `! probe_error` — the probe command couldn't run here at all (usually `PATH`). Says nothing about the agent, so nothing is written
+
+Switched-off entries are skipped by default: they can't be dispatched anyway, and for a prepaid provider auditing one spends real money to learn nothing. `external-agents status` shows a `use` column so a green `healthy` next to a switched-off entry can't be misread as "available".
 
 Day to day, `external-agents ui` is the same information as a page: live provider state, usage, and a paste box per provider. It binds to loopback only. Individual entries have an on/off switch (`external-agents toggle <id> --disabled`) if you want one out of rotation without deleting anything.
 

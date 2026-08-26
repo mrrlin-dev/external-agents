@@ -10,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRegistry } from "./lib/registry.js";
-import { readState, writeState, probeInstalled, resetCooldownsForEnvVar } from "./lib/state.js";
+import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, effectiveCooldownUntil } from "./lib/state.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, classifyDispatchFailure, resolveEscalation, getStats } from "./lib/dispatch.js";
@@ -224,10 +224,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === "list_agents") {
     const state = readState();
-    const merged = REGISTRY.agents.map((entry) => ({
-      ...entry,
-      ...(state[entry.id] || { state: "healthy" }),
-    }));
+    // `enabled` used to reach the caller only as a side effect of the spread
+    // order below (a state record's flag happening to land on top of the
+    // registry's), which meant a client had to know the two-layer rule to read
+    // it correctly. State it outright instead, and alongside it `dispatchable`
+    // — the single question a caller actually has, answered by the same
+    // predicate pick and the dispatch entrypoints use, so a client can never
+    // conclude something is available that dispatch will then refuse.
+    const now = Math.floor(Date.now() / 1000);
+    const merged = REGISTRY.agents.map((entry) => {
+      const record = state[entry.id] || { state: "healthy" };
+      const recordState = record.state ?? "healthy";
+      // Mirrors pick.js's eligibility check exactly, expiry included: a
+      // non-healthy verdict whose cooldown has elapsed no longer blocks, so
+      // reporting it as undispatchable would contradict what pick would do.
+      const expiresAt = effectiveCooldownUntil(record);
+      const blocked = recordState !== "healthy" && !(expiresAt != null && now >= expiresAt);
+      const enabled = isAgentEnabled(entry, state);
+      return { ...entry, ...record, enabled, dispatchable: enabled && !blocked };
+    });
     return {
       content: [
         { type: "text", text: JSON.stringify(merged) },
@@ -379,6 +394,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       workdir: result.workdir,
       external: result.external,
       files: result.files,
+      // Same reason the CLI returns it: the caller needs to know which commit
+      // this answer describes before it decides the answer is wrong.
+      repo: result.provenance ?? null,
     };
     if (escalatedFrom) response.escalated_from = escalatedFrom;
 

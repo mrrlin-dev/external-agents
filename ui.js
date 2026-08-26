@@ -5,8 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadRegistry, LOCAL_PATH, CANONICAL_BASES, nextProviderSlot, withLocalOverlayLock } from "./lib/registry.js";
-import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential, mergeAuditState } from "./lib/state.js";
-import { verifyCredential, getStats, auditCliEntry, classifyVerifyResult } from "./lib/dispatch.js";
+import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown } from "./lib/state.js";
+import { verifyCredential, getStats, auditCliEntry, classifyVerifyResult, shouldPersistOutcome } from "./lib/dispatch.js";
 import { bootEnv, refreshEnv } from "./lib/credentials.js";
 // Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
 // before any probe/dispatch runs. Without this, /api/audit sees a blank env
@@ -101,8 +101,24 @@ function computeStats(range = "24h") {
   const sinceIso = ms === null ? undefined : new Date(Date.now() - ms).toISOString();
 
   const rows = stateRows();
-  const healthy = rows.filter((r) => r.state === "healthy").length;
-  const locked  = rows.filter((r) => r.state === "needs_auth").length;
+  // The healthy tile is read as "how much of the pool can actually take work",
+  // so a switched-off entry must not count toward it however green its probe
+  // came back. Several registry entries ship off by default (paid models,
+  // DeepSeek's prepaid key) and their env var is often present anyway, so they
+  // probe healthy and inflated this number by exactly the entries that can
+  // never be dispatched. `enabled` here is already the effective value —
+  // stateRows() spreads the state record over the registry entry, so an
+  // operator toggle overrides the registry default, same rule as
+  // isAgentEnabled.
+  const dispatchable = rows.filter((r) => r.enabled !== false);
+  const healthy = dispatchable.filter((r) => r.state === "healthy").length;
+  const disabled = rows.length - dispatchable.length;
+  // Counted over dispatchable rows for the same reason as `healthy`, and for a
+  // sharper one: this tile's footnote is "paste a key below to unlock", and the
+  // banner it points at (renderCliSetup) already filters out disabled entries.
+  // Counting them here made the tile promise an unlock action the page below it
+  // would not offer.
+  const locked  = dispatchable.filter((r) => r.state === "needs_auth").length;
   // Audit freshness — oldest `checked` timestamp = when we last confirmed
   // each entry is real. 0 (never audited) or > 7 days = nag the operator.
   const stamps = rows.map((r) => r.checked || 0).filter((t) => t > 0);
@@ -126,6 +142,7 @@ function computeStats(range = "24h") {
   return {
     healthy_count:  healthy,
     locked_count:   locked,
+    disabled_count: disabled,
     total_count:    rows.length,
     dispatches:     dispatches,
     tokens:         tokensAll,
@@ -1051,7 +1068,11 @@ function renderAuditNag(audit) {
 function renderStats(s) {
   renderAuditNag(s.audit);
   document.getElementById("s-healthy").textContent = s.healthy_count;
-  document.getElementById("s-healthy-foot").textContent = "of " + s.total_count + " total";
+  // Name the switched-off entries in the footnote rather than silently
+  // shrinking the numerator: "12 of 48" with 9 of those 48 disabled otherwise
+  // reads as 36 broken agents.
+  document.getElementById("s-healthy-foot").textContent =
+    "of " + s.total_count + " total" + (s.disabled_count ? " · " + s.disabled_count + " off" : "");
   document.getElementById("s-locked").textContent = s.locked_count;
   document.getElementById("s-locked-foot").textContent =
     s.locked_count > 0 ? "paste a key below to unlock" : "all providers configured";
@@ -1502,8 +1523,16 @@ async function verify(id) {
       const glyph = j.outcome === "healthy" ? "✓" :
                     j.outcome === "needs_auth" ? "⚠" :
                     j.outcome === "model_unavailable" ? "✗" :
-                    j.outcome === "quota_exhausted" || j.outcome === "rate_limited" ? "⏳" : "?";
-      btn.textContent = glyph + " " + (j.latency_ms ? j.latency_ms + "ms" : j.outcome);
+                    j.outcome === "quota_exhausted" || j.outcome === "rate_limited" ? "⏳" :
+                    j.outcome === "probe_error" ? "!" : "?";
+      // probe_error means the command never ran, so the row's stored state was
+      // deliberately left untouched. Showing a latency next to it would imply
+      // the agent answered something; it didn't, and the operator needs to look
+      // at this machine rather than at the provider.
+      btn.textContent = j.outcome === "probe_error"
+        ? "! probe failed"
+        : glyph + " " + (j.latency_ms ? j.latency_ms + "ms" : j.outcome);
+      if (j.outcome === "probe_error") btn.title = j.note || "the probe command could not be executed";
       btn.disabled = false;
     }
     setTimeout(() => refresh(), 1200);
@@ -1527,7 +1556,11 @@ async function verifyCliProvider(btn) {
     ));
     const allHealthy = results.every(j => j.outcome === "healthy");
     const glyph = allHealthy ? "✓" : results.some(j => j.outcome === "healthy") ? "△" : "⚠";
-    btn.textContent = glyph + " " + (allHealthy ? "verified" : results[0].outcome);
+    // Prefer a real verdict over "probe_error" when reporting a mixed batch:
+    // an id whose command would not execute says nothing about the provider,
+    // and leading with it hides the ids that did answer.
+    const reported = results.find(j => j.outcome !== "probe_error") || results[0];
+    btn.textContent = glyph + " " + (allHealthy ? "verified" : reported.outcome);
     btn.disabled = false;
   } catch (e) {
     btn.textContent = "✗ err";
@@ -1940,27 +1973,34 @@ const server = http.createServer(async (req, res) => {
       v.ok            ? `verified (${v.latencyMs}ms)${hasApi ? "" : " (cli)"}`
       : v.hint        ? v.hint + (v.status ? ` (HTTP ${v.status})` : "")
       : `HTTP ${v.status || "?"}`;
-    // Same reasoning as the `external-agents audit` CLI loop: this "run
-    // probe" path used to never record cooldown_until for quota_exhausted/
-    // rate_limited, so the dashboard had nothing to show under the pill.
-    // `source` tags whether reset_at was actually parsed ("error_body") or
-    // is a flat-TTL guess ("fallback_ttl"), so the UI can mark the latter
-    // as an estimate instead of presenting it as a known reset time.
-    const cooldownSource = v.reset_at != null ? "error_body" : "fallback_ttl";
-    const cooldown_until =
-      (outcome === "quota_exhausted" || outcome === "rate_limited")
-        ? (v.reset_at ?? (Math.floor(Date.now() / 1000) + 3600))
-        : undefined;
-    writeState({
-      [entry.id]: mergeAuditState(readState()[entry.id] || {}, {
-        outcome,
-        note,
-        checked: Math.floor(Date.now() / 1000),
-        cooldown_until,
-        source: cooldownSource,
-      }),
+    // Which outcomes carry an expiry, and how long, lives in auditCooldown
+    // (lib/state.js). This handler and the `external-agents audit` CLI loop
+    // used to compute it separately, which is how one of them could grow a
+    // rule (errored_transient needs a TTL) that the other never learned.
+    const { cooldown_until, source: cooldownSource } = auditCooldown(outcome, v);
+    // "probe_error" = the command never executed (usually this process's PATH),
+    // so we learned nothing about the agent. Recording it would blame the agent
+    // for our shell AND, because any non-healthy record blocks pick until it
+    // expires, drop a working entry out of rotation. Leave state.json as it was.
+    if (shouldPersistOutcome(outcome)) {
+      writeState({
+        [entry.id]: mergeAuditState(readState()[entry.id] || {}, {
+          outcome,
+          note,
+          checked: Math.floor(Date.now() / 1000),
+          cooldown_until,
+          source: cooldownSource,
+        }),
+      });
+    }
+    return json(res, 200, {
+      id, outcome, note,
+      latency_ms: v.latencyMs || null,
+      status: v.status || null,
+      // Tells the caller whether state.json actually moved. false means the
+      // probe failed to run and the stored verdict was deliberately left alone.
+      persisted: shouldPersistOutcome(outcome),
     });
-    return json(res, 200, { id, outcome, note, latency_ms: v.latencyMs || null, status: v.status || null });
   }
 
   // POST /api/toggle { id, enabled } — flip the operator kill switch. Stored in
