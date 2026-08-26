@@ -20,7 +20,7 @@
 import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.js";
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown, deriveDisplayState } from "./lib/state.js";
-import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult, shouldPersistOutcome, repoProvenance } from "./lib/dispatch.js";
+import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult, shouldPersistOutcome, repoProvenance, sweepDispatchTemp } from "./lib/dispatch.js";
 import { pickAgents, providerFamily, isAgentEnabled } from "./lib/pick.js";
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
@@ -342,6 +342,30 @@ function assertRequiredBase(cwd, baseRef) {
   }
 }
 
+// Housekeeping attached to `audit` rather than to every command: audit is the
+// periodic maintenance pass, it already writes state.json, and a sweep on every
+// `pick` would be a surprising side effect on the hot path.
+//
+// Dispatch temp directories hold `generated.md` — the model's full response in
+// plain text — and the OS reclaims them only after roughly a month. Reported on
+// stderr so it never lands in --json stdout, and returned so the JSON branch can
+// include it as data.
+function reportTempSweep() {
+  const swept = sweepDispatchTemp();
+  if (swept.removed > 0) {
+    const mb = (swept.bytes / (1024 * 1024)).toFixed(1);
+    console.error(
+      `swept ${swept.removed} dispatch temp director${swept.removed === 1 ? "y" : "ies"} older than ${swept.retention_days}d (${mb} MB)` +
+      (swept.failed ? `; ${swept.failed} could not be removed` : "") +
+      // Deliberately does NOT advertise 0: with a zero window the cutoff is
+      // "now", which would collect the workdir of a dispatch running this
+      // second — the one thing the retention window exists to protect.
+      ` — set EXTERNAL_AGENTS_TEMP_RETENTION_DAYS to change the window; a negative value disables the sweep.`,
+    );
+  }
+  return swept;
+}
+
 // Show a hint line at the bottom of status/UI when the audit hasn't run
 // recently — the oldest `checked` timestamp across all entries is our proxy
 // for "when did we last verify these are still real". > 7 days → nag.
@@ -602,6 +626,11 @@ async function cmdAudit(flags) {
   const providerFilter = flags.provider ? String(flags.provider) : null;
   const asJson = flags.json === true;
   const includeDisabled = flags["include-disabled"] === true;
+  // Before entry selection, not after. Housekeeping must not depend on the
+  // audit finding work: `audit --provider X` where every X is switched off
+  // exits early with "no enabled entries match", and that is a perfectly
+  // ordinary way to run this command — it should still tidy up.
+  const tempSweep = reportTempSweep();
   const auditState = readState();
   // A disabled entry cannot be dispatched — pick hides it and a by-id dispatch
   // refuses it — so auditing one buys nothing and is not free: `audit` is the
@@ -684,7 +713,7 @@ async function cmdAudit(flags) {
 
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
   if (asJson) {
-    console.log(JSON.stringify({ elapsed_s: parseFloat(elapsed), results, skipped_disabled: skippedDisabled }, null, 2));
+    console.log(JSON.stringify({ elapsed_s: parseFloat(elapsed), results, skipped_disabled: skippedDisabled, temp_sweep: tempSweep }, null, 2));
     return;
   }
   // Human-readable table.
