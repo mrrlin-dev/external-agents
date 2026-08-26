@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-08-26
+
 ### Fixed
 
 - **A failed health probe could remove an agent from the pool permanently, and nothing said so.** `errored_transient` was the one non-healthy verdict that never recorded a `cooldown_until`, and `pickAgents` only readmits a non-healthy entry once a cooldown has *elapsed* — so a single transient failure (a 5xx, a timeout, a probe spawned with a broken PATH) filtered that entry out of every subsequent pick until somebody re-probed it by hand. Observed live: `claude-opus-5` sat in `state.json` as `errored_transient — "bash: line 1: env: command not found"`, and `external-agents pick --tier strong` returned no closed strong model at all, only free/local ones. `errored_transient` now carries a 15-minute expiry (`ERRORED_TRANSIENT_TTL_S`), and `effectiveCooldownUntil` *derives* that expiry from `checked` for records already written without one — so existing `state.json` files heal on read, with no migration.
