@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Fixed
+
+- **The two process-group tests were timing races and could report either answer wrongly.** Both spawned a descendant that wrote a marker file after a fixed delay (120ms / 250ms), killed the group, slept a little longer, and asserted the marker was absent. Too slow and the kill lands after the marker is already written, so a WORKING group kill fails — that is what made `runDispatch forwards parent SIGTERM to the subprocess group` go red in a loaded full-suite run while passing 3/3 in isolation. Too slow the other way and the descendant has not booted when the assertion runs, so a BROKEN group kill passes; `runDispatch timeout terminates the subprocess group` also used a 30ms dispatch timeout that could fire before the fixture had spawned anything to kill, exercising nothing at all. Both now record the descendant's PID and wait for it to stop existing, which is what "terminates the process group" actually claims and has neither failure mode. Verified by disabling the group kill in `terminate()`: both tests fail, as they must. Three consecutive full-suite runs on a machine at load average 25-70: clean.
+
 ## [0.47.0] - 2026-08-26
 
 ### Fixed
