@@ -135,7 +135,7 @@ One round-trip per entry, concurrent per provider so you don't trip rate limits,
 - `? errored_transient` — something went wrong once; expires by itself after 15 minutes
 - `! probe_error` — the probe command couldn't run here at all (usually `PATH`). Says nothing about the agent, so nothing is written
 
-`audit` also sweeps this package's own temp directories once it's done, reporting what went. Those directories hold each dispatch's `generated.md` — the model's full response, in plain text — and the OS only reclaims them after about a month. The window defaults to 3 days; `EXTERNAL_AGENTS_TEMP_RETENTION_DAYS` changes it. Nothing outside this package's own prefixes is ever touched, and anything still inside the window is left alone so a running dispatch can't lose its workdir.
+`audit` also sweeps this package's own temp directories once it's done, reporting what went. Those directories hold each dispatch's `generated.md` — the model's full response, in plain text — and the OS only reclaims them after about a month. The window defaults to 3 days; `EXTERNAL_AGENTS_TEMP_RETENTION_DAYS` changes it, and a negative value turns the sweep off. Nothing outside this package's own prefixes is ever touched, symlinks are skipped rather than followed, and nothing modified in the last 15 minutes is removed whatever the window says — so a dispatch running right now can't lose its workdir even if the window is set to zero.
 
 Switched-off entries are skipped by default: they can't be dispatched anyway, and for a prepaid provider auditing one spends real money to learn nothing. `external-agents status` shows a `use` column so a green `healthy` next to a switched-off entry can't be misread as "available".
 
