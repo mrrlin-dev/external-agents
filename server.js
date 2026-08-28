@@ -279,6 +279,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (!entry) {
       throw new Error(`unknown agent: ${id}`);
     }
+    // Same kill-switch guard as the `dispatch` tool above — naming a disabled
+    // entry's id directly must not spend a probe on it either.
+    if (!isAgentEnabled(entry, readState())) {
+      throw new Error(`agent disabled: ${id} (re-enable with the toggle UI, or \`external-agents toggle ${id} --enabled\`)`);
+    }
     const result = probeInstalled(entry);
     const checked = Math.floor(Date.now() / 1000);
     writeState({ [id]: { ...result, checked } });
