@@ -462,6 +462,11 @@ function cmdProbe(args) {
   if (!agentId) die("usage: cli.js probe <agent-id>", 2);
   const entry = findAgent(agentId);
   if (!entry) die(`unknown agent: ${agentId}`, 3);
+  // Same kill-switch guard as `dispatch <id>` (see the disabled-guard test) —
+  // naming a disabled entry's id directly must not spend a probe on it either.
+  if (!isAgentEnabled(entry, readState())) {
+    die(`agent disabled: ${agentId} (re-enable with: external-agents toggle ${agentId} --enabled)`, 5);
+  }
   const result = probeInstalled(entry);
   const checked = Math.floor(Date.now() / 1000);
   writeState({ [agentId]: { ...result, checked } });
