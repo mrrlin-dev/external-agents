@@ -505,12 +505,12 @@ agents:
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
-  - id: openrouter-gpt-oss-20b-free
+  - id: openrouter-minimax-m3-free
     provider: openrouter
-    model: openai/gpt-oss-20b:free
+    model: minimax/minimax-m3:free
     quota_scope: shared
-    tier: weak
-    tags: [quick, fast, free]
+    tier: strong
+    tags: [reasoning, coding, multimodal, free]
     auth: "env:OPENROUTER_API_KEY"
     usage_url: "https://openrouter.ai/settings/credits"
     signup_url: "https://openrouter.ai/keys"
@@ -520,19 +520,112 @@ agents:
       limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
       card_required: false
     token_limits:
-      context_window: 131072
+      context_window: 1048576
       rpm: 20
       note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit)."
     transports:
       edit_exists:
-        cmd: "aider --model openrouter/openai/gpt-oss-20b:free"
+        cmd: "aider --model openrouter/minimax/minimax-m3:free"
       read_only:
         via: generate_new
         verified: by_construction
       generate_new:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
-        model: openai/gpt-oss-20b:free
+        model: minimax/minimax-m3:free
+        effort_param: nested
+        effort_levels: [none, minimal, low, medium, high, xhigh, max]
+        effort_verified: passthrough
+  - id: openrouter-glm-5-2-free
+    provider: openrouter
+    model: z-ai/glm-5.2:free
+    quota_scope: shared
+    tier: strong
+    tags: [reasoning, coding, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
+    token_limits:
+      context_window: 256000
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit)."
+    transports:
+      edit_exists:
+        cmd: "aider --model openrouter/z-ai/glm-5.2:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
+      generate_new:
+        url: "https://openrouter.ai/api/v1/chat/completions"
+        env: OPENROUTER_API_KEY
+        model: z-ai/glm-5.2:free
+        effort_param: nested
+        effort_levels: [none, minimal, low, medium, high, xhigh, max]
+        effort_verified: passthrough
+  - id: openrouter-dots-3-note-preview-free
+    provider: openrouter
+    model: dots-studio/dots-3-note-preview:free
+    quota_scope: shared
+    tier: strong
+    tags: [coding, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
+    token_limits:
+      context_window: 512000
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit). This preview is scheduled to leave OpenRouter on 2026-09-30."
+    transports:
+      edit_exists:
+        cmd: "aider --model openrouter/dots-studio/dots-3-note-preview:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
+      generate_new:
+        url: "https://openrouter.ai/api/v1/chat/completions"
+        env: OPENROUTER_API_KEY
+        model: dots-studio/dots-3-note-preview:free
+        effort_param: nested
+        effort_levels: [none, minimal, low, medium, high, xhigh, max]
+        effort_verified: passthrough
+  - id: openrouter-laguna-s-2-1-free
+    provider: openrouter
+    model: poolside/laguna-s-2.1:free
+    quota_scope: shared
+    tier: strong
+    tags: [coding, agentic, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
+    token_limits:
+      context_window: 262144
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit). Free endpoint terms may allow inputs and outputs to be used to train or improve Poolside models."
+    transports:
+      edit_exists:
+        cmd: "aider --model openrouter/poolside/laguna-s-2.1:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
+      generate_new:
+        url: "https://openrouter.ai/api/v1/chat/completions"
+        env: OPENROUTER_API_KEY
+        model: poolside/laguna-s-2.1:free
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough

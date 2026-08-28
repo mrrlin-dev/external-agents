@@ -28,7 +28,7 @@ Requesting them narrows the usable pool, so use them only when you specifically 
 | `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`, `kiro` | low, medium, high, xhigh, max |
 | `codex` | low, medium, high, xhigh |
 | `codex-gpt-5.6-luna` | none, minimal, low, medium, high, xhigh, max |
-| `openrouter-*` (nemotron ultra/super, gpt-oss-20b-free, north-mini-code-free) | none, minimal, low, medium, high, xhigh, max |
+| `openrouter-*` (Nemotron, MiniMax M3, GLM 5.2, Dots 3, Laguna S 2.1, North Mini Code) | none, minimal, low, medium, high, xhigh, max |
 | `gemini-*` | none, minimal, low, medium, high |
 | `groq-gpt-oss-120b`, `groq-gpt-oss-20b` | none, default, low, medium, high |
 | `groq-qwen3.6-27b` | none, default |
