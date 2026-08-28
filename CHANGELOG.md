@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-08-28
+
+### Added
+
+- **Four current OpenRouter free-tier models:** MiniMax M3, GLM 5.2, Dots 3 Note Preview, and Laguna S 2.1. They use the shared OpenRouter `:free` quota and expose the same OpenAI-compatible generation transport as the existing OpenRouter entries.
+
+### Removed
+
+- **The stale OpenAI GPT-OSS 20B free entry** was removed after it disappeared from OpenRouter's live model catalog.
+
 ## [0.48.0] - 2026-08-27
 
 ### Fixed
