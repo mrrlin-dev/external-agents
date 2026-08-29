@@ -14,6 +14,7 @@ import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, effecti
 import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, classifyDispatchFailure, resolveEscalation, getStats } from "./lib/dispatch.js";
+import { recordFailure } from "./lib/failure-log.js";
 import { pickAgents, isAgentEnabled } from "./lib/pick.js";
 
 // Resolve agents.yaml relative to THIS module, never the process cwd. As an
@@ -333,16 +334,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       throw new Error("dispatch: missing agent_id or prompt");
     }
 
+    // Same two refusals the CLI records (see `refuse` in cli.js): they never
+    // reach runAny, so without this they are the one failure class the sidecar
+    // log would be blind to on the MCP surface.
+    const refused = (reason, extra = {}) => {
+      recordFailure({ stage: "precheck", outcome: "refused", surface: "mcp", reason, agent_id, ...extra });
+      throw new Error(reason);
+    };
+
     const sourceEntry = findAgent(agent_id);
     if (!sourceEntry) {
-      throw new Error(`unknown agent: ${agent_id}`);
+      refused(`unknown agent: ${agent_id}`);
     }
     // Naming an id explicitly bypasses pickAgents' own kill-switch filter, so
     // without this a disabled entry (operator toggle, or a corporate network
     // policy the operator disabled it in response to) was still reachable by
     // any caller that named it directly.
     if (!isAgentEnabled(sourceEntry, readState())) {
-      throw new Error(`agent disabled: ${agent_id} (re-enable with the toggle UI, or \`external-agents toggle ${agent_id} --enabled\`)`);
+      refused(
+        `agent disabled: ${agent_id} (re-enable with the toggle UI, or \`external-agents toggle ${agent_id} --enabled\`)`,
+        { provider: sourceEntry.provider, model: sourceEntry.model },
+      );
     }
 
     let entry = sourceEntry;

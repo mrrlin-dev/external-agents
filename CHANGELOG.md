@@ -4,6 +4,28 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-08-29
+
+### Added
+
+- **An opt-in sidecar failure log,** written so it can be handed to a model and turned back into a fix. `external-agents failures on` starts appending every *failed* attempt to `~/.local/state/external-agents/failures.jsonl`, one JSON object per line, and `external-agents failures tail N` prints it raw for exactly that purpose.
+
+  The existing dispatch log is an aggregation record and is right to be small: one row per call, error text clipped to the last 400 characters so `get_stats` and the dashboard stay cheap. That clip is wrong for diagnosis, and wrong in a specific way — it is a *tail*, so a CLI that prints a startup banner, echoes the prompt, and then throws has its exception preserved and its invocation dropped, while a provider that answers with a JSON error body long enough to overflow loses the half naming the replacement model. The sidecar keeps both ends of an over-long stream and says how much it elided from the middle.
+
+  What each row carries beyond the preview: full stdout and stderr, the exact argv and cwd the child was spawned with (the most common cause of a puzzling CLI failure is a flag the registry spells differently than the installed version of the tool expects), the HTTP request descriptor and the provider's untruncated response body and headers, unwrapped `fetch` causes (`ECONNREFUSED` instead of "fetch failed"), and the classification drawn from that output — so a reader can tell "your key is wrong" from "this model no longer exists" from "your `PATH` is broken" without re-deriving it.
+
+  It covers every failure path, not just dispatch: `audit` and credential verification (whose hints clip the provider's body to 200 characters), the read-only canary probe, and — the class with no trace anywhere before this — pre-dispatch refusals. An unknown agent, a disabled agent, a `--require-base` mismatch, or a missing escalation candidate never reaches `runAny`, so nothing was spawned, there is no exit code, and the dispatch log has no row. On both the CLI and the MCP surface, those now leave a record.
+
+  **The switch is a file, not an environment variable:** `~/.local/state/external-agents/config.json`, in the operator's state directory rather than the package, so `npm i -g …@latest` replaces the package and leaves the setting alone. `EXTERNAL_AGENTS_FAILURE_LOG=1|0` still overrides it for a single run, and `external-agents failures on` warns when that override is set in the current shell rather than letting a flipped switch appear to do nothing. `EXTERNAL_AGENTS_FAILURE_LOG_FILE` redirects the sink.
+
+  Off by default, and everything stays local: the file is `0600`, nothing is transmitted. Secrets are stripped on the way in by three passes — exact-match blanking of every key-shaped environment value this process holds (which catches a key echoed back inside a provider's own error message, where nothing about its shape says "key"), a pattern pass for tokens this process never held, and a final pass over the serialised line so a field this module does not know about cannot leak one. The tool does not write the prompt down: `prompt_text` is dropped and the prompt positional in the argv becomes a byte count, with `failures on --with-prompts` to opt back in. That is deliberately not stated as a guarantee that no prompt text reaches the file — many CLIs echo the prompt back on stdout, and `raw.stdout` is captured whole, which is the point of the sink. The log rotates once at 32 MiB rather than growing without limit.
+
+### Fixed
+
+- **A CLI that printed a banner to stdout and its exception to stderr got the banner reported as the failure reason.** The one-line summary was drawn from stderr and stdout concatenated, so the last line of the joined text won — and that is stdout's. The two streams are now consulted separately, error stream first. Only affects the new failure log's `reason` field.
+
+MINOR: new subcommand, new environment variables, new opt-in behaviour, no change to any existing default. Full suite on the branch: 253 pass, 0 fail, 1 skipped (pre-existing), three consecutive clean runs.
+
 ## [0.49.0] - 2026-08-28
 
 ### Added

@@ -26,6 +26,15 @@ import { nextStateAfterOutcome } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
 import { writeText } from "./lib/stream-write.js";
+import {
+  recordFailure,
+  readFailureLogConfig,
+  setFailureLogEnabled,
+  readFailures,
+  getFailureLogPath,
+  getRotatedLogPath,
+  getConfigPath as getFailureLogConfigPath,
+} from "./lib/failure-log.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -67,6 +76,15 @@ function parseArgs(argv) {
   return { args, flags };
 }
 function die(msg, code = 2) { console.error(msg); process.exit(code); }
+
+// A refusal is a failed attempt too, and it is the class the operator is least
+// likely to reconstruct later: nothing was spawned, so there is no stderr, no
+// exit code, and nothing at all in the dispatch log. "Why did half my fan-out
+// silently do nothing" almost always answers to one of these four lines.
+function refuse(msg, code, record) {
+  recordFailure({ stage: "precheck", outcome: "refused", reason: msg, ...record });
+  die(msg, code);
+}
 function findAgent(id) { return REGISTRY.agents.find((a) => a.id === id); }
 function resolveEffort(entry, transport, effort) {
   if (!effort) return undefined;
@@ -164,13 +182,17 @@ async function cmdDispatch(args, flags) {
   });
 
   const src = findAgent(agentId);
-  if (!src) die(`unknown agent: ${agentId}`, 3);
+  if (!src) refuse(`unknown agent: ${agentId}`, 3, { agent_id: agentId });
   // A naked agent-id dispatch bypasses pickAgents entirely, so its own kill-switch
   // filter never runs — naming an id explicitly used to be enough to reach a
   // provider the operator had deliberately disabled (e.g. a corporate network
   // policy blocking it outright). Refuse the same way pick does.
   if (!isAgentEnabled(src, readState())) {
-    die(`agent disabled: ${agentId} (re-enable with: external-agents toggle ${agentId} --enabled)`, 5);
+    refuse(
+      `agent disabled: ${agentId} (re-enable with: external-agents toggle ${agentId} --enabled)`,
+      5,
+      { agent_id: agentId, provider: src.provider, model: src.model },
+    );
   }
 
   // --require-base: refuse to dispatch when the checkout is not the base the
@@ -181,15 +203,17 @@ async function cmdDispatch(args, flags) {
   // when the caller wants that to be a precondition rather than a note.
   //
   // Checked here, before escalation resolution and before last_used_at is
-  // stamped, so a refusal leaves no trace: nothing was dispatched, so nothing
-  // should look as though it was.
+  // stamped, so a refusal leaves no trace in the agent's STATE: nothing was
+  // dispatched, so nothing should look as though it was. (The sidecar failure
+  // log, when the operator has switched it on, does record the refusal — that
+  // file is a record of what happened, not a claim about the agent's health.)
   //
   // Off by default and never inferred. A stale checkout is sometimes exactly
   // what you meant to inspect, and a tool that decides that for you is worse
   // than one that stays quiet.
   if (flags["require-base"]) {
-    if (!flags.cwd) die("--require-base needs --cwd: there is no checkout to check without one", 2);
-    assertRequiredBase(String(flags.cwd), String(flags["require-base"]));
+    if (!flags.cwd) refuse("--require-base needs --cwd: there is no checkout to check without one", 2, { agent_id: agentId });
+    assertRequiredBase(String(flags.cwd), String(flags["require-base"]), agentId);
   }
 
   let entry = src;
@@ -197,6 +221,14 @@ async function cmdDispatch(args, flags) {
   if (flags.pro) {
     const esc = resolveEscalation(REGISTRY, agentId, readState());
     if (!esc) {
+      recordFailure({
+        stage: "precheck",
+        outcome: "refused",
+        reason: `no escalation candidate available for ${agentId} (--pro)`,
+        agent_id: agentId,
+        provider: src.provider,
+        model: src.model,
+      });
       console.error(JSON.stringify({ outcome: "no_escalation_candidate", requested: agentId }));
       process.exit(4);
     }
@@ -318,22 +350,23 @@ async function cmdDispatch(args, flags) {
 // repo to satisfy its own precondition would be a far nastier surprise than
 // the stale checkout it was guarding against. The counts are therefore
 // relative to refs already on disk, and the error says so.
-function assertRequiredBase(cwd, baseRef) {
+function assertRequiredBase(cwd, baseRef, agentId) {
+  const refuseBase = (msg, code) => refuse(msg, code, { agent_id: agentId, cwd, base_ref: baseRef });
   const prov = repoProvenance(cwd);
-  if (!prov) die(`--require-base ${baseRef}: ${cwd} is not inside a git repository`, 2);
-  if (!prov.head) die(`--require-base ${baseRef}: ${prov.root} has no commits`, 2);
+  if (!prov) refuseBase(`--require-base ${baseRef}: ${cwd} is not inside a git repository`, 2);
+  if (!prov.head) refuseBase(`--require-base ${baseRef}: ${prov.root} has no commits`, 2);
 
   const git = (args) => spawnSync("git", ["-C", prov.root, ...args], { encoding: "utf-8", timeout: 5000 });
   const resolved = git(["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`]);
   if (resolved.status !== 0 || !(resolved.stdout || "").trim()) {
-    die(`--require-base ${baseRef}: that ref does not resolve in ${prov.root} (fetch it first: git -C ${prov.root} fetch origin)`, 6);
+    refuseBase(`--require-base ${baseRef}: that ref does not resolve in ${prov.root} (fetch it first: git -C ${prov.root} fetch origin)`, 6);
   }
   const baseSha = resolved.stdout.trim();
 
   if (git(["merge-base", "--is-ancestor", baseSha, prov.head]).status !== 0) {
     const counts = git(["rev-list", "--left-right", "--count", `${baseSha}...${prov.head}`]);
     const drift = counts.status === 0 ? ` (${counts.stdout.trim().replace(/\s+/, " behind, ")} ahead, as of the last fetch)` : "";
-    die(
+    refuseBase(
       `--require-base ${baseRef}: refusing to dispatch — ${prov.root} is on ` +
       `${prov.detached ? `detached ${prov.short}` : `${prov.branch} @ ${prov.short}`}, which does not contain ${baseRef}${drift}. ` +
       `Anything the agent reports would be about a different version of this project than you asked about.`,
@@ -803,6 +836,103 @@ async function cmdAddModel(flags) {
   console.log(`re-run 'external-agents probe ${entry.id}' to verify.`);
 }
 
+// --- failures -----------------------------------------------------
+//
+// The sidecar failure log's whole reason to exist is that its output gets
+// handed to a model. So `tail` is not a pretty-printer: it emits the raw JSONL
+// verbatim, which is the form a model reads best and the form that survives a
+// copy-paste. `status`, by contrast, is for the human deciding whether to look.
+function cmdFailures(args, flags) {
+  const [action = "status", ...restArgs] = args;
+  const file = getFailureLogPath();
+
+  switch (action) {
+    case "on":
+    case "off": {
+      const enabled = action === "on";
+      const cfg = setFailureLogEnabled(enabled);
+      const effective = readFailureLogConfig();
+      console.log(`failure log: ${enabled ? "ON" : "OFF"}`);
+      console.log(`flag:        ${getFailureLogConfigPath()} (failure_log.enabled = ${cfg.enabled})`);
+      console.log(`log:         ${file}`);
+      if (effective.enabled !== enabled) {
+        // The env var outranks the file on purpose, but silently ignoring a
+        // switch the operator just flipped is how you lose an afternoon.
+        console.error(
+          `warning: EXTERNAL_AGENTS_FAILURE_LOG=${process.env.EXTERNAL_AGENTS_FAILURE_LOG} is set in this shell ` +
+          `and overrides the file, so the effective setting is still ${effective.enabled ? "ON" : "OFF"}. Unset it.`,
+        );
+      }
+      if (enabled) {
+        console.log("");
+        console.log("Every failed attempt — dispatch, audit, credential verify, read-only probe,");
+        console.log("and pre-dispatch refusal — is now appended with its full raw output.");
+        console.log("Prompts are elided by default; 'failures on --with-prompts' includes them.");
+      }
+      if (enabled && flags["with-prompts"]) {
+        const current = JSON.parse(fs.readFileSync(getFailureLogConfigPath(), "utf-8"));
+        current.failure_log.include_prompt = true;
+        fs.writeFileSync(getFailureLogConfigPath(), JSON.stringify(current, null, 2) + "\n", { mode: 0o600 });
+        console.log("prompt capture: ON (prompts will be written to the log)");
+      }
+      return;
+    }
+    case "path":
+      console.log(file);
+      return;
+    case "clear": {
+      for (const f of [file, getRotatedLogPath()]) {
+        try { fs.rmSync(f); console.log(`removed ${f}`); } catch { /* nothing there */ }
+      }
+      return;
+    }
+    case "tail": {
+      const limit = Number(restArgs[0] || flags.n || 20);
+      const rows = readFailures(Number.isFinite(limit) && limit > 0 ? limit : 20);
+      if (!rows.length) {
+        console.error(`no failures recorded in ${file}`);
+        process.exitCode = 1;
+        return;
+      }
+      for (const row of rows) console.log(JSON.stringify(row));
+      return;
+    }
+    case "status": {
+      const cfg = readFailureLogConfig();
+      const rows = cfg.enabled || fs.existsSync(file) ? readFailures(0) : [];
+      let size = 0;
+      try { size = fs.statSync(file).size; } catch { /* not created yet */ }
+      console.log(`failure log: ${cfg.enabled ? "ON" : "OFF"}`);
+      console.log(`flag file:   ${getFailureLogConfigPath()}`);
+      console.log(`log file:    ${file}${size ? ` (${(size / 1024).toFixed(1)} KiB, ${rows.length} record(s))` : " (empty)"}`);
+      console.log(`prompts:     ${cfg.include_prompt ? "captured" : "elided"}`);
+      if (!cfg.enabled) {
+        console.log("");
+        console.log("Turn it on with:  external-agents failures on");
+        console.log("It survives upgrades — the flag lives in your state dir, not in the package.");
+        return;
+      }
+      if (rows.length) {
+        const byAgent = {};
+        for (const r of rows) byAgent[r.agent_id || "<none>"] = (byAgent[r.agent_id || "<none>"] || 0) + 1;
+        const top = Object.entries(byAgent).sort((a, b) => b[1] - a[1]).slice(0, 8);
+        console.log("");
+        console.log("most failures:");
+        for (const [id, n] of top) console.log(`  ${String(n).padStart(4)}  ${id}`);
+        const last = rows[rows.length - 1];
+        console.log("");
+        console.log(`latest:  ${last.iso}  ${last.agent_id || "-"}  [${last.stage}/${last.outcome}]`);
+        console.log(`         ${String(last.reason || "").slice(0, 140)}`);
+        console.log("");
+        console.log(`hand the raw log to a model:  external-agents failures tail 50`);
+      }
+      return;
+    }
+    default:
+      die(`failures: unknown action '${action}' — use status | on | off | tail [N] | path | clear`, 2);
+  }
+}
+
 function cmdUi(flags) {
   // Same behavior as `init` — start UI, then open the browser after a short
   // delay to let the port bind. Pass --no-open to skip the browser (useful in
@@ -827,6 +957,7 @@ switch (subcmd) {
   case "set-credential": await cmdSetCredential(args); break;
   case "audit":    await cmdAudit(flags); break;
   case "add-model": cmdAddModel(flags); break;
+  case "failures": cmdFailures(args, flags); break;
   case "help":
   case "--help":
   case undefined:
@@ -859,7 +990,15 @@ switch (subcmd) {
                                    # force API round-trip for every ENABLED registry entry (or just PROVIDER); writes state.json outcomes (healthy / needs_auth / model_unavailable / rate_limited)
                                    # disabled entries are skipped — they cannot be dispatched, and for prepaid providers auditing them spends real money; --include-disabled overrides
   add-model --id ID --provider P --url URL --model M --env ENV_VAR [--tier weak|strong] [--tags a,b]
-                                   # add a locally-authored agent to ~/.local/state/external-agents/agents.local.yaml (merged over the bundled registry)`);
+                                   # add a locally-authored agent to ~/.local/state/external-agents/agents.local.yaml (merged over the bundled registry)
+  failures [status|on|off|tail [N]|path|clear] [--with-prompts]
+                                   # sidecar failure log: OFF unless you turn it on. Records EVERY failed attempt
+                                   # (dispatch, audit, credential verify, read-only probe, pre-dispatch refusal)
+                                   # with the full raw stdout/stderr/HTTP body, the argv, and the classification —
+                                   # not the 400-char preview 'stats' keeps. Secrets redacted; prompts elided
+                                   # unless --with-prompts. The flag lives in ~/.local/state/external-agents/config.json,
+                                   # so upgrading the package does not switch it back off.
+                                   # 'tail N' prints raw JSONL — paste it straight into a model and ask what to fix.`);
     process.exit(subcmd ? 0 : 2);
   default: die(`unknown subcommand: ${subcmd}`, 2);
 }
