@@ -171,7 +171,7 @@ external-agents failures clear
 
 **The switch lives in `~/.local/state/external-agents/config.json`, not in the package** — so `npm i -g @mrrlin-dev/external-agents@latest` cannot silently turn it back off. `EXTERNAL_AGENTS_FAILURE_LOG=1` (or `=0`) overrides the file for a single run; `EXTERNAL_AGENTS_FAILURE_LOG_FILE` points the sink somewhere else.
 
-Everything stays on your disk — the file is `0600` and nothing is transmitted anywhere. Secrets are stripped on the way in: every key-shaped environment value this process is holding is blanked by exact match, plus a pattern pass for tokens it never held, plus a final pass over the serialised line.
+Everything stays on your disk — the file is `0600` and nothing is transmitted anywhere. Secrets are stripped on the way in: every key-shaped environment value this process is holding is blanked by exact match (in its escaped form too, for the pass that runs over the serialised line), plus a pattern pass for tokens it never held, plus a shape pass for a password embedded in a connection string, plus a final pass over the serialised line. Which names count as key-shaped is a list, and a list is only as complete as the conventions someone thought of — `KEY`, `TOKEN`, `SECRET`, `AUTH`, `PAT`, `PSK` and their neighbours are in it.
 
 **The tool does not write your prompt down** — `prompt_text` is dropped and the prompt positional in the argv becomes a byte count; `--with-prompts` opts back in. That is not the same as a promise that no prompt text is in the file: many CLIs echo the prompt back on stdout, and `raw.stdout` is captured whole, which is the whole point of the sink. Read the file before you paste it somewhere you wouldn't paste the prompt.
 

@@ -4,6 +4,24 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.50.1] - 2026-08-29
+
+### Fixed
+
+- **A fine-grained GitHub token held in `GH_PAT` was written to the failure log in the clear.** The name test judges an environment variable by its segments, and `PAT` was not among the words it recognises, so `GH_PAT` and `GITHUB_PAT` returned false and the value pass never saw the token. The pattern pass did not catch it either — `ghp_` is the *classic* token prefix, and a fine-grained token starts `github_pat_`. With both passes blind to it, the serialised backstop had nothing to match, so a live credential could pass all three. `PAT` and `PSK` are now recognised as whole segments and `github_pat_` as a shape. `PAT` is deliberately kept out of the undelimited-substring list, where it would swallow `PATH`.
+
+  This is the same class as the end-anchored name test fixed during 0.50.0's own review, found the same way: a consensus round that read the code, and a check that ran it. The list is names, and a list of names is only ever as complete as the conventions someone thought of.
+
+- **A password embedded in a connection string survived every pass.** `DATABASE_URL`, `REDIS_URL` and `AMQP_URL` are named after the service, not after the credential inside them, so name-based matching cannot reach them by construction. Caught by shape instead: `scheme://user:password@host` keeps its scheme, user and host — the half you diagnose with — and blanks what sits between the colon and the `@`. A URL with no credentials in it, and an SSH remote, are left exactly as they were.
+
+- **A secret containing a quote, a backslash or a newline could ride out in a field the module does not model.** The per-field passes run before serialisation, but the backstop runs *over the serialised line*, where JSON has escaped those characters and the literal value no longer appears. The value pass now blanks the escaped form as well.
+
+- **An existing log file with wider permissions kept them.** `mode` on `appendFileSync` applies at creation only, so a file left behind by an earlier version — or by a redirected `EXTERNAL_AGENTS_FAILURE_LOG_FILE` — went on receiving raw provider output at whatever mode it already had. It is now stat-ed and tightened to `0600` before the append.
+
+- **Running the test suite appended to the operator's own failure log.** With the flag switched on, two test files drove real failure paths without redirecting the sink, so a full run mixed eight fixture rows into the file the operator diagnoses with. Measured, then fixed at the source; a full run now adds none.
+
+PATCH: no API change, no new setting, no change to any default. Full suite: 261 pass, 0 fail, 1 skipped (pre-existing).
+
 ## [0.50.0] - 2026-08-29
 
 ### Added
