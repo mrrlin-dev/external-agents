@@ -141,6 +141,40 @@ Switched-off entries are skipped by default: they can't be dispatched anyway, an
 
 Day to day, `external-agents ui` is the same information as a page: live provider state, usage, and a paste box per provider. It binds to loopback only. Individual entries have an on/off switch (`external-agents toggle <id> --disabled`) if you want one out of rotation without deleting anything.
 
+### When something fails and you want to know why
+
+`external-agents stats` keeps a 400-character preview of the last error per agent — enough for the dashboard, rarely enough to fix anything. The preview is a tail, so a CLI that prints a banner and then throws gets the banner clipped in and the exception clipped out.
+
+The **sidecar failure log** is the other half. It is **off by default** and records nothing until you switch it on:
+
+```bash
+external-agents failures on
+```
+
+From then on every *failed* attempt is appended whole to `~/.local/state/external-agents/failures.jsonl` — one JSON object per line:
+
+- **dispatch** — full stdout, full stderr, the exact argv, the cwd, the HTTP request and the provider's untruncated response body
+- **audit** and **credential verify** — the raw probe output the hint clips to 200 characters
+- **read-only probe** — including the case where a declared read-only command wrote to the canary
+- **pre-dispatch refusals** — unknown agent, disabled agent, `--require-base` mismatch, no escalation candidate. These never reach the dispatch log at all, and they are the ones hardest to reconstruct later: nothing was spawned, so there is no exit code to find.
+
+Each row also carries the classification drawn from that output (`needs_auth`, `quota_exhausted`, `model_unavailable`, `harness_failure`), so a model reading the file can tell "your key is wrong" from "this model no longer exists" from "your `PATH` is broken" without re-deriving it.
+
+That is the intended use. The log is written to be pasted:
+
+```bash
+external-agents failures tail 50      # raw JSONL — hand it to a model and ask what to fix
+external-agents failures status       # is it on, how big, which agents fail most
+external-agents failures off
+external-agents failures clear
+```
+
+**The switch lives in `~/.local/state/external-agents/config.json`, not in the package** — so `npm i -g @mrrlin-dev/external-agents@latest` cannot silently turn it back off. `EXTERNAL_AGENTS_FAILURE_LOG=1` (or `=0`) overrides the file for a single run; `EXTERNAL_AGENTS_FAILURE_LOG_FILE` points the sink somewhere else.
+
+Everything stays on your disk — the file is `0600` and nothing is transmitted anywhere. Secrets are stripped on the way in: every key-shaped environment value this process is holding is blanked by exact match, plus a pattern pass for tokens it never held, plus a final pass over the serialised line.
+
+**The tool does not write your prompt down** — `prompt_text` is dropped and the prompt positional in the argv becomes a byte count; `--with-prompts` opts back in. That is not the same as a promise that no prompt text is in the file: many CLIs echo the prompt back on stdout, and `raw.stdout` is captured whole, which is the whole point of the sink. Read the file before you paste it somewhere you wouldn't paste the prompt.
+
 ### Adding your own model
 
 An internal endpoint, a beta model, anything not bundled:
