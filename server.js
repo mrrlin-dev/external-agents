@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadRegistry } from "./lib/registry.js";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, effectiveCooldownUntil } from "./lib/state.js";
-import { nextStateAfterOutcome } from "./lib/outcome.js";
+import { nextStateAfterOutcome, sharedQuotaBucketIds } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, classifyDispatchFailure, resolveEscalation, getStats } from "./lib/dispatch.js";
 import { recordFailure } from "./lib/failure-log.js";
@@ -399,7 +399,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       exhaustionResetAt,
       now,
     });
-    writeState({ [entry.id]: nextRec });
+    const stateWrite = { [entry.id]: nextRec };
+    // Same account-wide-free-tier collapse as the CLI path — the two dispatch
+    // surfaces write state through the same helpers so they cannot drift.
+    if (!ok && isExhaustion) {
+      for (const siblingId of sharedQuotaBucketIds(entry, REGISTRY.agents)) {
+        const sibling = REGISTRY.agents.find((a) => a.id === siblingId);
+        const currentState = readState();
+        // A switched-off sibling is not dispatchable, so recording an allowance it
+        // cannot spend just adds a row nobody reads.
+        if (!sibling || !isAgentEnabled(sibling, currentState)) continue;
+        const prevSibling = currentState[siblingId];
+        if (prevSibling?.state === "quota_exhausted" && (prevSibling.cooldown_until ?? 0) >= (nextRec.cooldown_until ?? 0)) continue;
+        stateWrite[siblingId] = nextStateAfterOutcome(prevSibling, { ok: false, isExhaustion: true, exhaustionResetAt, now });
+      }
+    }
+    writeState(stateWrite);
     const outcome = ok ? "success" : (isExhaustion ? "quota_exhausted" : "error");
 
     const response = {
