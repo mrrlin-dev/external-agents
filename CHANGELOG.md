@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.51.1] - 2026-08-30
+
+### Fixed
+
+- **`<subcommand> --help` ran the subcommand instead of printing help.** `external-agents pick --help` performed a real pick and printed an agent id. That is worse than unhelpful for the callers most likely to ask: shell-side feature detection reads help text, so a probe for a flag got an agent id back, concluded the flag did not exist, and silently dropped it — while spending a pick call on every probe. Measured consequence: 0.51.0's whole point was to stop oversized prompts being seated, and the consensus runner detected `--prompt-bytes` exactly that way, so the very next gate run seated an 8000-TPM agent for a 40 KB review and took another `HTTP 413`. Any subcommand with `--help` (or `-h`) now prints the usage banner.
+
+- **`pick`'s sizing flags were documented only in a source comment.** `--prompt-bytes` / `--prompt-tokens` were absent from the printed help, so even a correct probe of the right command would not have found them. They are in the banner now, with the rule that entries declaring no limits are never refused.
+
+PATCH: no API change. Full suite: 274 pass, 0 fail, 1 skipped (pre-existing).
+
 ## [0.51.0] - 2026-08-30
 
 Six findings, all of them read off the logs this package now keeps rather than guessed at: the
