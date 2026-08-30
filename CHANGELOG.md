@@ -4,6 +4,30 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-08-30
+
+Six findings, all of them read off the logs this package now keeps rather than guessed at: the
+sidecar failure log and the consensus gate's own run stats, over 46 recorded failures and 16 gate
+rounds.
+
+### Fixed
+
+- **`pick` and `dispatch` disagreed about `--transport read_only`, and the gate paid for it every round.** `pick` treated a bare `generate_new` as satisfying a read-only request — an HTTP call cannot write, so the observation was true — while `selectTransport` requires the declaration to be *explicit*, because an entry nobody has considered is otherwise indistinguishable from one deliberately cleared for read-only use. `pick`'s comment claimed the two rules matched. They did not, and `pick` was the side that was wrong: it handed out a seat, `dispatch` refused it, and the process died with an uncaught stack trace. Measured across 16 consecutive consensus rounds: **11 of them lost a reviewer this way**, and only one round in sixteen ever reached its four-voice target. `pick` now applies `selectTransport`'s rule exactly, including refusing a `read_only` that delegates to a transport the entry does not have, and a test asserts the two agree entry by entry rather than by comment.
+
+- **`add-model` created entries that could never be dispatched read-only.** It wrote `generate_new` alone, so every locally added model landed in exactly the state above. It was the only entry of 52 in the resolved registry missing the declaration — and it was a locally added one, which is what that tells you about where such entries come from. New entries now carry `read_only: {via: generate_new, verified: by_construction}`, the same shape every bundled HTTP entry uses and the basis `verify-read-only` already reports for them.
+
+- **A transport refusal escaped as an uncaught exception and left no trace.** A Node stack trace on stderr and exit 1, so a caller could report only "rc=1" — and because the throw happened before anything was spawned, the sidecar failure log recorded nothing, on precisely the pre-dispatch-refusal class it was built to capture. It is now a recorded `precheck` refusal and a structured `transport_refused` on stderr with exit 4, on both the CLI and the MCP surface.
+
+- **Declared token limits were never read, so oversized prompts were seated and failed live.** `token_limits` has been in the registry for exactly this purpose, and one entry's own note warns about the cap that then rejected seven dispatches: `Request too large … TPM: Limit 8000, Requested 8118 / 8195 / 10098`. `pick` accepts `--prompt-bytes N` / `--prompt-tokens N` and drops entries whose declared `tpm` or `context_window` cannot hold the request. Limits are inherited from a sibling key serving the same model — of the eight model families that declare limits, every one has numbered siblings that declare none, so a per-entry read would have skipped the oversized seat and handed the prompt straight to its clone. A missing limit is never a refusal: silence is not "too small", and treating it as such would empty the pool.
+
+- **An account-wide free tier went out one entry at a time.** OpenRouter's free tier is a per-account daily cap across every `:free` model, but the registry models them as separate entries, so exhausting one left the rest looking healthy to be picked in turn and rediscover the same cap — four consecutive gate runs, one ending in a re-pick that found no non-openrouter candidate and proceeded on the two-voice floor. Exhausting one now marks the bucket. Deliberately narrow: a paid model on the same key is untouched, and providers that meter per key (groq's numbered keys are separate allowances) are never collapsed.
+
+- **A benign warning became the failure reason.** Three recorded failures carried `Warning: Input is not a terminal (fd=0).` as their one-line reason. The filter for that noise already existed and was applied to the error preview — just not to the reason, which is the line a reader actually sees first.
+
+- **The overlay lock did not create its own directory.** Found while testing the fix above: on a machine where nothing had yet written state, `add-model` died with `ENOENT` on the lock file, before the overlay it was about to create.
+
+MINOR: one new optional flag pair on `pick`, no change to any existing default. `pick --transport read_only` is stricter — by design, since the seats it no longer offers are exactly the ones `dispatch` refuses. Full suite: 272 pass, 0 fail, 1 skipped (pre-existing).
+
 ## [0.50.1] - 2026-08-29
 
 ### Fixed

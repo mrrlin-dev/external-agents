@@ -5,6 +5,7 @@
 //
 // Subcommands:
 //   pick [--tier T] [--n N] [--min-distinct-providers M] [--exclude ID,ID] [--exclude-providers P,P]
+//        [--prompt-bytes N | --prompt-tokens N]
 //        (--exclude and --exclude-providers both cascade to every API-key clone:
 //         excluding one id drops every entry serving the same model, and a
 //         provider is matched by family, so `google` covers google3..google8)
@@ -22,7 +23,7 @@ import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown, deriveDisplayState } from "./lib/state.js";
 import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult, shouldPersistOutcome, repoProvenance, sweepDispatchTemp } from "./lib/dispatch.js";
 import { pickAgents, providerFamily, isAgentEnabled } from "./lib/pick.js";
-import { nextStateAfterOutcome } from "./lib/outcome.js";
+import { nextStateAfterOutcome, sharedQuotaBucketIds } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
 import { writeText } from "./lib/stream-write.js";
@@ -111,6 +112,15 @@ function cmdPick(flags) {
     baseFilter.exclude_providers = String(flags["exclude-providers"]).split(",").filter(Boolean);
   }
   if (flags.transport) baseFilter.transport = flags.transport;
+  // --prompt-bytes / --prompt-tokens: seat only agents whose declared limits can
+  // actually hold the prompt you are about to send. Optional; without it, sizing
+  // is not considered at all and pick behaves exactly as before.
+  for (const [flag, key] of [["prompt-bytes", "prompt_bytes"], ["prompt-tokens", "prompt_tokens"]]) {
+    if (flags[flag] === undefined) continue;
+    const v = Number(flags[flag]);
+    if (!Number.isFinite(v) || v <= 0) die(`pick: --${flag} must be a positive number`, 2);
+    baseFilter[key] = v;
+  }
   if (flags.effort) {
     if (!VALID_EFFORT_LEVELS.has(String(flags.effort))) {
       die(`pick: invalid --effort '${flags.effort}' (valid: none, minimal, default, low, medium, high, xhigh, max)`, 2);
@@ -240,7 +250,37 @@ async function cmdDispatch(args, flags) {
   writeState({ [entry.id]: { ...(cur[entry.id] || {}), last_used_at: Math.floor(Date.now() / 1000) } });
 
   const transport = flags.transport;  // "generate_new" | "edit_exists" | undefined
-  const resolvedTransport = selectTransport(entry, { transport, cwd: flags.cwd });
+  // A transport refusal is a refusal, not a crash. It used to escape as an
+  // uncaught exception: a Node stack trace on stderr and exit 1, which a caller
+  // could only report as "rc=1". runAny records the failure row; this turns it
+  // into the same shape as every other pre-dispatch refusal here.
+  let resolvedTransport;
+  try {
+    resolvedTransport = selectTransport(entry, { transport, cwd: flags.cwd });
+  } catch (e) {
+    // Recorded here, the same way every other pre-dispatch refusal in this
+    // function is: the CLI resolves the transport before runAny, so runAny's own
+    // capture point never sees this one.
+    recordFailure({
+      stage: "precheck",
+      outcome: "refused",
+      surface: "cli",
+      reason: e.message,
+      agent_id: entry.id,
+      provider: entry.provider,
+      model: entry.model,
+      requested_transport: transport ?? null,
+      declared_transports: Object.keys(entry.transports || {}),
+    });
+    console.error(JSON.stringify({
+      outcome: "transport_refused",
+      requested: entry.id,
+      requested_transport: transport ?? null,
+      declared_transports: Object.keys(entry.transports || {}),
+      reason: e.message,
+    }));
+    process.exit(4);
+  }
   const effort = resolveEffort(entry, resolvedTransport, flags.effort ? String(flags.effort) : undefined);
   const files = fileEntries.length > 0 ? fileEntries : undefined;
   const progress = !flags.json
@@ -289,7 +329,23 @@ async function cmdDispatch(args, flags) {
         exhaustionResetAt,
         now,
       });
-  writeState({ [entry.id]: nextRec });
+  const stateWrite = { [entry.id]: nextRec };
+  // One allowance, many entries: an account-wide free tier is exhausted for
+  // every sibling the moment one of them hits it, so they go down together
+  // rather than being picked in turn to rediscover the same cap.
+  if (!ok && isExhaustion) {
+    for (const siblingId of sharedQuotaBucketIds(entry, REGISTRY.agents)) {
+      const sibling = REGISTRY.agents.find((a) => a.id === siblingId);
+      const currentState = readState();
+      // A switched-off sibling is not dispatchable, so recording an allowance it
+      // cannot spend just adds a row nobody reads.
+      if (!sibling || !isAgentEnabled(sibling, currentState)) continue;
+      const prevSibling = currentState[siblingId];
+      if (prevSibling?.state === "quota_exhausted" && (prevSibling.cooldown_until ?? 0) >= (nextRec.cooldown_until ?? 0)) continue;
+      stateWrite[siblingId] = nextStateAfterOutcome(prevSibling, { ok: false, isExhaustion: true, exhaustionResetAt, now });
+    }
+  }
+  writeState(stateWrite);
   const outcome = ok ? "success" : (isExhaustion ? "quota_exhausted" : "error");
 
   // --json: emit ONE structured object to stdout and nothing else — for
@@ -796,6 +852,18 @@ async function cmdAddModel(flags) {
     tags: flags.tags ? String(flags.tags).split(",").filter(Boolean) : [],
     auth: flags.auth ? String(flags.auth) : `env:${flags.env}`,
     transports: {
+      // An OpenAI-compatible completion call holds no filesystem handle, so the
+      // read-only role is served by this transport itself — the `by_construction`
+      // basis the registry documents, and the shape every bundled HTTP entry
+      // already uses. Written here because leaving it out is not a neutral
+      // omission: `pick --transport read_only` seats an undeclared entry while
+      // `selectTransport` refuses it, so a locally added model was picked into
+      // consensus panels and then died on dispatch. Measured on the only entry in
+      // the registry that lacked it — a locally added one — across 11 of 16 runs.
+      read_only: {
+        via: "generate_new",
+        verified: "by_construction",
+      },
       generate_new: {
         url: String(flags.url),
         env: String(flags.env),
@@ -967,6 +1035,8 @@ switch (subcmd) {
         entry serving the same model; providers match by family, so \`google\` covers google3..8)
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
   dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--require-base <ref>] [--file path[:lines]] "<prompt>"
+       (exit 4 = refused before anything was spawned: unknown/disabled agent, no escalation candidate,
+        --require-base mismatch, or a transport the entry does not declare)
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
        (--effort = reasoning depth. Use \`high\` for planning, design and review;
         omit it for mechanical edits and lookups — the provider's own default applies.)
