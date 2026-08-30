@@ -1012,7 +1012,14 @@ function cmdUi(flags) {
 const [, , subcmd, ...rest] = process.argv;
 const { args, flags } = parseArgs(rest);
 
-switch (subcmd) {
+// `<subcommand> --help` printed nothing and RAN the subcommand: `pick --help`
+// performed a real pick and returned an agent id. Anything shell-side that
+// probed for a flag that way — the consensus runner's feature detection did
+// exactly this — read the agent id, concluded the flag was absent, and silently
+// dropped it, while spending a pick call per probe.
+const helpRequested = flags.help === true || flags.h === true;
+
+switch (helpRequested ? "--help" : subcmd) {
   case "pick":     cmdPick(flags); break;
   case "dispatch": cmdDispatch(args, flags); break;
   case "status":   cmdStatus(flags); break;
@@ -1031,6 +1038,9 @@ switch (subcmd) {
   case undefined:
     console.error(`external-agents CLI — subcommands:
   pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists|read_only] [--effort <level>]
+       [--prompt-bytes N | --prompt-tokens N]
+       (--prompt-bytes/--prompt-tokens = seat only agents whose declared token_limits can hold a
+        prompt that size; entries declaring no limits are never refused. Bytes are counted at 4:1.)
        (--exclude/--exclude-providers cascade to API-key clones: excluding one id drops every
         entry serving the same model; providers match by family, so \`google\` covers google3..8)
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
