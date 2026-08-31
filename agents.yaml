@@ -976,6 +976,34 @@ agents:
         cmd: "agy --dangerously-skip-permissions --mode plan --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+  # gemini-3.7-flash supersedes 3.6-flash as the quick/free variant in this
+  # family (added 2026-08-31, discovered live via `agy models` on a fresh
+  # Antigravity login). Kept both -3.6 and -3.7 -high for now rather than
+  # replacing: not yet cross-checked against each other for quality/latency,
+  # and 3.6-flash-high has an established track record in state.json this
+  # entry doesn't have yet.
+  - id: agy-gemini-3.7-flash-high
+    provider: antigravity
+    model: gemini-3.7-flash-high
+    quota_scope: shared
+    tier: weak
+    tags: [quick, agentic, free]
+    auth: "cli:agy"
+    free_tier:
+      description: "Antigravity CLI authenticates with a separate Google account/OAuth session from the AI Studio API key. Free usage is rate-limited on an individual-account basis, shared across every model reachable through this CLI."
+      limits: "Observed 429s report an account-wide reset window measured in hours, not a per-model cap; exact numeric caps are not published."
+      card_required: false
+    token_limits:
+      note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
+    transports:
+      edit_exists:
+        cmd: "agy --dangerously-skip-permissions --model gemini-3.7-flash-high"
+        cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
+      read_only:
+        cmd: "agy --dangerously-skip-permissions --mode plan --model gemini-3.7-flash-high"
+        cwd_flag: "--add-dir {cwd}"
+        prompt_flag: "--print"
   - id: agy-claude-sonnet-4-6
     provider: antigravity
     model: claude-sonnet-4-6
