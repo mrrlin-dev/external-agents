@@ -22,7 +22,7 @@ import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.j
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown, deriveDisplayState } from "./lib/state.js";
 import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult, shouldPersistOutcome, repoProvenance, sweepDispatchTemp } from "./lib/dispatch.js";
-import { pickAgents, providerFamily, isAgentEnabled } from "./lib/pick.js";
+import { pickAgents, providerFamily, isAgentEnabled, explainEmptyPick, formatEmptyPick } from "./lib/pick.js";
 import { nextStateAfterOutcome, sharedQuotaBucketIds, withObservations, floorExhaustionReset } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
@@ -164,7 +164,10 @@ function cmdPick(flags) {
       });
       out = [...out, ...backfill];
     }
-    if (out.length === 0) process.exit(3);
+    if (out.length === 0) {
+      console.error(formatEmptyPick(explainEmptyPick(REGISTRY, state, { filter: baseFilter })));
+      process.exit(3);
+    }
     for (const id of out) console.log(id);
     return;
   }
@@ -172,7 +175,10 @@ function cmdPick(flags) {
   const filter = { ...baseFilter };
   if (flags.tier) filter.tier = flags.tier;
   const picked = pickAgents(REGISTRY, state, { n, filter, min_distinct_providers: minDistinct });
-  if (picked.length === 0) process.exit(3);
+  if (picked.length === 0) {
+    console.error(formatEmptyPick(explainEmptyPick(REGISTRY, state, { filter })));
+    process.exit(3);
+  }
   for (const id of picked) console.log(id);
 }
 

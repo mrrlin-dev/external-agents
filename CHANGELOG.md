@@ -56,7 +56,17 @@ Measured over 8079 dispatches across 40 days: **19.7% of all dispatches were thr
 
 - **Two pre-existing test flakes, root-caused rather than re-run until green.** Both asserted on machine-global state while `node --test` runs test files in parallel processes. The signal-handler cleanup test ran with `timeoutMs: 1000`, so it was also asserting that a cold `node` spawn beats one second under parallel load — it failed ~1 run in 6 with `exitCode 124` at ~1450 ms, never reaching the assertions it existed for. The temp-directory test counted *every* `ea-gen-*` directory in the OS temp dir, so any other file's dispatch creating or sweeping one between a `before` and its assertion changed the number — ~1 run in 10, while passing 5/5 in isolation. The counter is now scoped to its own fixture's agent id, and a mutation test confirms it still fails when a failed dispatch really does create a workdir.
 
-MINOR: additive. New subcommand, new state fields, no breaking change to the registry or to any existing flag. Full suite: 354 tests, 353 pass, 0 fail, 1 skipped (pre-existing), five consecutive clean runs after both flake fixes. Verified end to end against the live pool, not only in tests — the ledger learned `tpm: 5000` for azure and `tpm: 8000` for six groq keys that had declared nothing, and `pick` changed its answer accordingly.
+- **An empty `pick` exited 3 with nothing to say.** "Everything is cooled down", "everything is quarantined" and "your prompt is bigger than every seat you have" are three different problems with three different remedies, and they were indistinguishable from a bare exit code. `pick` now prints one line naming the funnel:
+
+  ```
+  pick: no candidates out of 53 entries — 17 cooling down (quota_exhausted);
+  14 prompt too large (needs 22500000 tokens); 10 switched off; 10 excluded by
+  transport, tags, effort or an explicit --exclude; 2 cooling down (errored_transient)
+  ```
+
+  A reviewer raised this as "the quarantine filter can empty the pool". It can — and so could the cooldown filter long before any of this, so the claimed invariant was overstated and is now written down accurately. The proposed remedy (ignore quarantine when it would empty the set) was declined: a pool where every agent has been tried eight times and never once answered has no working credentials, and re-offering those seats spends another round discovering it. Describing the state is the fix; papering over it is not.
+
+MINOR: additive. New subcommand, new state fields, no breaking change to the registry or to any existing flag. Full suite: 358 tests, 357 pass, 0 fail, 1 skipped (pre-existing), repeated clean runs after both flake fixes. Verified end to end against the live pool, not only in tests — the ledger learned `tpm: 5000` for azure and `tpm: 8000` for six groq keys that had declared nothing, and `pick` changed its answer accordingly.
 
 ## [0.52.1] - 2026-08-31
 
