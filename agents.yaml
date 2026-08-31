@@ -146,6 +146,12 @@
 # Numbers here are a best-effort snapshot (dated 2026-08), not a live poll —
 # rate limits drift and some free tiers are login-gated with no scrapable
 # page at all. Re-verify before hardcoding a hard reject on these figures.
+#
+# `deprecated` (optional) — free-text advisory on an entry planned for
+# removal. Printed once per dispatch to stderr (`dispatch: WARNING —
+# <id> is deprecated: <text>`) by runAny in lib/dispatch.js; never blocks or
+# alters the transport, so the entry stays fully functional until it is
+# actually deleted from this file. Say what to migrate to.
 schema_version: 1
 agents:
 
@@ -690,6 +696,9 @@ agents:
   # `external-agents add-model --provider cerebras ...` — see README.
 
   # ============ Ollama Cloud (via localhost daemon → cloud proxy) ============
+  # Planned for removal once the API-key path (ollama-gpt-oss-*-key below) is
+  # the norm -- no date set yet, kept alongside it in the meantime for anyone
+  # without a generated OLLAMA_API_KEY. See the `deprecated` field below.
   - id: ollama-gpt-oss-20b
     provider: ollama-cloud
     model: gpt-oss:20b-cloud
@@ -697,6 +706,7 @@ agents:
     tier: weak
     tags: [quick, free]
     auth: "cli:ollama"
+    deprecated: "Planned for removal in favor of ollama-gpt-oss-20b-key (env:OLLAMA_API_KEY) — migrate off the local ollama daemon / ollama signin."
     # aider reaches the same local Ollama endpoint the generate_new url uses,
     # but reads it from OLLAMA_API_BASE rather than a per-transport url.
     env:
@@ -732,6 +742,7 @@ agents:
     tier: strong
     tags: [quick, free]
     auth: "cli:ollama"
+    deprecated: "Planned for removal in favor of ollama-gpt-oss-120b-key (env:OLLAMA_API_KEY) — migrate off the local ollama daemon / ollama signin."
     # aider reaches the same local Ollama endpoint the generate_new url uses,
     # but reads it from OLLAMA_API_BASE rather than a per-transport url.
     env:
