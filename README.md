@@ -252,21 +252,23 @@ it is safe to run unattended and only shouts when something actually broke.
 
 ### Every day, without being asked
 
-```bash
-scripts/install-doctor-schedule.sh --at 09:15 --run
-scripts/install-doctor-schedule.sh --status
-scripts/install-doctor-schedule.sh --uninstall
+Point a scheduler at it. `doctor` is the tested half — thresholds, evidence, a
+remedy per finding, an exit code — and whatever runs it on a timer is the other
+half. A Claude Code scheduled task works well, because the interesting part of a
+daily check is not running the command but deciding what in its output is worth
+waking somebody for:
+
+```
+Run `external-agents audit` then `external-agents doctor --since 24h --json`.
+Report only findings with severity "high", plus anything that changed since
+yesterday. If nothing is high and nothing changed, reply with one line.
 ```
 
-launchd on macOS, `crontab` elsewhere. The job runs **audit first, then doctor**, and that
-order is the whole design: `audit` is one `max_tokens: 1` ping per entry, and the response
-carries the provider's real rate-limit ceiling — so the measuring pass fixes the most common
-finding instead of merely reporting it. A watchdog that repairs what it can is worth keeping;
-one that only complains gets muted.
-
-Reports land in `~/.local/state/external-agents/doctor/` — `latest.txt` plus one dated
-`.txt`/`.json` per day, pruned after 30 days. A high-severity finding also raises a desktop
-notification.
+Run **audit before doctor**, and that order is the design: `audit` is one
+`max_tokens: 1` ping per HTTP entry, and the probe response carries the
+provider's real rate-limit ceiling — so the measuring pass repairs the commonest
+finding instead of merely reporting it. A watchdog that fixes what it can is
+worth keeping; one that only complains gets muted.
 
 ---
 

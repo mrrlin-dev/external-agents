@@ -14,7 +14,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 - **`usage_from` in the registry, and `lib/cli-usage.js` to interpret it.** Token accounting for CLI transports, which the 0.53.0 header ledger structurally could not reach.
 
+### Removed
+
+- **`scripts/doctor-daily.sh` and `scripts/install-doctor-schedule.sh`.** Shipped in 0.53.0 and superseded a day later. `doctor` is the tested half of a daily check — thresholds, evidence, a remedy per finding, an exit code — and a launchd/cron wrapper was the wrong other half: the interesting part of a daily check is deciding what in the output is worth waking somebody for, which is a judgement, not a cron line. A scheduled Claude task does that better and needs no shipped shell. The `doctor` command itself stays; it is what such a task runs.
+
+  Removing them also drops the two defects they carried: a `set -o pipefail` + `grep -q` pipeline that made `--status` report a loaded job as not loaded (`grep -q` exits on first match, upstream gets SIGPIPE, `pipefail` fails the whole pipeline), and a feature probe that would have matched `--since` in the general help text of a build with no `doctor` at all.
+
 ### Fixed
+
 
 - **A CLI's reset time was being guessed at when it was stated, or knowable.** Three distinct cases, all in `lib/quota-reset.js` — a bare `try again at 3:03 PM` (unparseable, fell to a 48-hour default on six recorded rows, throwing a working seat away for two days to wait out minutes), `Resets in 4h30m14s` (the hand-rolled pattern dropped the seconds and rejected a seconds-only form outright), and cursor-agent stating no period at all (48-hour default, re-seated ~15 times a month against a monthly allowance).
 
