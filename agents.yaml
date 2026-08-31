@@ -759,6 +759,88 @@ agents:
         effort_param: top_level
         effort_levels: [none, low, medium, high, max]
         effort_verified: validated
+
+  # ============ Ollama Cloud (direct API key, no local daemon) ============
+  # Same account, same models, same quota bucket as the cli:ollama pair above --
+  # this path skips `ollama signin` and the localhost:11434 proxy entirely and
+  # talks straight to ollama.com with a Bearer key from ollama.com/settings/keys.
+  # Kept alongside the cli entries rather than replacing them: this is the only
+  # path that works where the ollama daemon isn't installed/running.
+  - id: ollama-gpt-oss-20b-key
+    provider: ollama-cloud
+    model: gpt-oss:20b-cloud
+    quota_scope: shared
+    tier: weak
+    tags: [quick, free]
+    auth: "env:OLLAMA_API_KEY"
+    # aider/litellm's ollama_chat provider reads OLLAMA_API_KEY straight from
+    # the process env itself -- only the base URL needs to move here. Note
+    # this means an exported OLLAMA_API_KEY also rides along on any cli:ollama
+    # dispatch in the same process (litellm attaches it regardless of base
+    # URL) -- harmless against a real local daemon, which ignores auth.
+    env:
+      OLLAMA_API_BASE: "https://ollama.com"
+    preference_order: 20
+    usage_url: "https://ollama.com/settings/keys"
+    signup_url: "https://ollama.com/settings/keys"
+    docs_url: "https://docs.ollama.com/cloud"
+    free_tier:
+      description: "Ollama's hosted cloud models include a free usage allowance for signed-in accounts, no credit card required to start."
+      limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
+      card_required: false
+    token_limits:
+      context_window: 131072
+      note: "Same account/quota bucket as ollama-gpt-oss-20b -- gated by session (5h) + weekly usage level, not tpm/rpm/rpd."
+    transports:
+      edit_exists:
+        cmd: "aider --model ollama_chat/gpt-oss:20b-cloud"
+      read_only:
+        via: generate_new
+        verified: by_construction
+      generate_new:
+        url: "https://ollama.com/v1/chat/completions"
+        env: OLLAMA_API_KEY
+        model: gpt-oss:20b-cloud
+        effort_param: top_level
+        effort_levels: [none, low, medium, high, max]
+        effort_verified: validated
+  - id: ollama-gpt-oss-120b-key
+    provider: ollama-cloud
+    model: gpt-oss:120b-cloud
+    quota_scope: shared
+    tier: strong
+    tags: [quick, free]
+    auth: "env:OLLAMA_API_KEY"
+    # No preference_order here, same as its ollama-gpt-oss-120b cli sibling --
+    # this mirrors the pre-existing cli pair's ordering exactly rather than
+    # inventing new symmetry between the two -key entries; ?? 999 in
+    # lib/pick.js:208 makes it sort after the 20b-key's explicit 20.
+    env:
+      OLLAMA_API_BASE: "https://ollama.com"
+    usage_url: "https://ollama.com/settings/keys"
+    signup_url: "https://ollama.com/settings/keys"
+    docs_url: "https://docs.ollama.com/cloud"
+    free_tier:
+      description: "Ollama's hosted cloud models include a free usage allowance for signed-in accounts, no credit card required to start."
+      limits: "Free usage is capped and resets on a rolling window; check the usage console for the current allowance."
+      card_required: false
+    token_limits:
+      context_window: 131072
+      note: "Same account/quota bucket as ollama-gpt-oss-120b -- gated by session (5h) + weekly usage level, not tpm/rpm/rpd."
+    transports:
+      edit_exists:
+        cmd: "aider --model ollama_chat/gpt-oss:120b-cloud"
+      read_only:
+        via: generate_new
+        verified: by_construction
+      generate_new:
+        url: "https://ollama.com/v1/chat/completions"
+        env: OLLAMA_API_KEY
+        model: gpt-oss:120b-cloud
+        effort_param: top_level
+        effort_levels: [none, low, medium, high, max]
+        effort_verified: validated
+
   # ============ Direct-CLI agentic reviewers (no OpenAI-compat, cli-only) ============
   - id: cursor-agent
     provider: cursor
