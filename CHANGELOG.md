@@ -4,6 +4,70 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-08-31
+
+Measured over 8079 dispatches across 40 days: **19.7% of all dispatches were thrown away**, 26.9% over the trailing week, and rising. Three quarters of that loss was predictable from data the providers were already handing us and the pool was discarding.
+
+### Added
+
+- **`external-agents doctor [--since 24h|7d] [--json]`** — checks the five goals now written down in the README against the dispatch log, instead of assuming them. One check per goal, each carrying the evidence to verify or dismiss it and the command that fixes it. Exit 1 on a high-severity finding only, so it is safe to run unattended and only shouts when something actually broke.
+
+- **A daily schedule for it.** `scripts/install-doctor-schedule.sh` (launchd on macOS, `crontab` elsewhere) runs `scripts/doctor-daily.sh`, which does **audit first, then doctor**. That order is the design: `audit` is one `max_tokens: 1` ping per entry and the response carries the provider's real ceiling, so the measuring pass repairs the most common finding rather than reporting it. Reports land in `~/.local/state/external-agents/doctor/`, pruned after 30 days.
+
+- **`external-agents --version`.** It used to die with `unknown subcommand`. A scheduled job needs it to record which build it actually ran, or "the nightly check was testing a stale build" stays invisible.
+
+### Fixed
+
+- **Rate-limit headers were captured only on failure, so the system could learn a limit only by breaking on it.** Every provider in the pool publishes `x-ratelimit-limit-tokens` / `-remaining-tokens` / `-reset-*` on a **200** as well as a 429; the success path built no header object at all. By the time a 429 arrived the information was an autopsy, and the identical headers on the preceding success had been a warning nobody read.
+
+  Headers are now attached to every return path — including the `max_tokens: 1` audit probe, which turns `audit` into a limits-*discovery* pass — and normalized into two records per agent with deliberately different lifetimes: `observed_limits` (the ceiling, good for weeks) and `observed_budget` (what is left of it, expiring in 120s). `pick` reads the observation **before** the registry's declaration.
+
+  This was the keystone, and the numbers say why. Only **4 of 52** entries declared a `tpm` at all. Both directions of error were live: `azure-kimi-k2-5-safe` declared nothing and really has a **5000-token-per-minute** ceiling, so every review prompt sent to it was arithmetically impossible — 47% failure rate, and the single largest source of lost consensus reviewers; while `groq-llama-3.3-70b` succeeded **59 times above** the 8000 its family was assumed to share, so a hand-written family constant would have been wrong the other way. One rule gets both right and nothing has to be maintained by hand.
+
+- **All 251 recorded HTTP 413s were groq, and every one was predictable.** The error body states `Limit 8000, Requested 10098` in as many words; it is now parsed and recorded as the observed ceiling, which makes the most expensive class of failure the measurement that prevents the next one. Measured before/after on the live pool: a 40 KB prompt used to be offered every groq and azure seat and is now offered **none**, while a 4 KB prompt still gets 6 groq seats and 1 azure — routed by size, not blacklisted.
+
+  A tighter bytes→tokens divisor was measured and **rejected**: empirically 4.44 mean / 4.00 median / 3.43 at p5, and moving 4.0 → 3.2 catches 8.4pp more 413s while wrongly blocking 10.7pp more real successes. Break-even at best. The lever is a measured ceiling, not a better guess.
+
+- **`retry-after: 1` on a token-exhausted 429 produced a one-second cooldown.** Azure sends it beside `x-ratelimit-type: Tokens`, `remaining-tokens: 0`, `renewalperiod-tokens: 60` — true about the request bucket, irrelevant while the token minute is empty. Obeying it literally meant an instant re-pick into the same wall: **21 measured re-dispatches inside 60 seconds of an agent's own rate-limit response.** When the provider names tokens as the exhausted axis the cooldown is now floored at that axis's own window. The floor only ever lengthens a cooldown.
+
+- **An agent that had never once answered was ordered exactly like one that always does.** `consecutive_failures` is a streak and deliberately blind to rate limits ("a busy agent is not a bad agent" — that rule stays), so the pool had no long memory at all: **247 dispatches went to agents with a lifetime success rate under 15%**, four of them at exactly zero. `openrouter-gemma-4-31b-free` was seated 73 times and failed 73 times, every day for 40 days, because a lapsing cooldown was the only thing anything remembered about it.
+
+  Two mechanisms, kept separate because conflating them is how a pool empties itself. **Quarantine** is a filter whose bar is absolute — never succeeded, in 8 tries — so it cannot mistake an exhausted free tier for a dead model, and `audit` clears it. The **success rate** is a sort key and never a filter: a seat that works 5% of the time belongs after every seat that works 95% of the time and ahead of an empty slot.
+
+- **Least-recently-used was balancing attempts while ignoring outcomes.** `last_used_at` is stamped at dispatch *start*, so LRU was honest — but failures return in 14.7s mean against 47.6s for a success, so a broken seat re-entered the front of the queue about three times quicker than a working one. LRU did not merely tolerate dead agents, it over-sampled them. Ordering is now health band first, LRU inside the band; the band is coarse (four buckets) on purpose, because a finer score would override the tiebreak that spreads load and collapse "balanced across the live models of a tier" into "whichever model is marginally luckiest gets everything".
+
+### Not changed, and why
+
+- **`quota_scope: shared` is still not used to collapse sibling cooldowns**, despite being declared on 27 entries and read by zero lines of code. Generalizing the openrouter rule to every `shared` sibling on a key looked obvious and was measured wrong before shipping: auditing groq's three models behind **one** key within the same second returned *independent* budgets — `groq-gpt-oss-20b` at `remaining-tokens: 7927` (spent 73), `groq-qwen3.6-27b` at `7988` (spent 12), each decremented only by its own ping. Groq meters per (key, model), so cooling two healthy seats down because a third hit its own limit removes capacity that exists — a direct hit on goals 1 and 5.
+
+  The deeper problem is that the field does not say which *axis* is shared. `shared` is plausibly true of groq's daily `tpd: 200000` and false of its per-minute window, and a per-sibling cooldown is only correct for the axis that actually bit. OpenRouter keeps its collapse because it is not a guess: its own 429 says `free-models-per-day`, the cap is documented per account, and it was recorded costing four consecutive gate rounds.
+
+- **A verdict-only write erased measurements.** `writeState` merges per id by REPLACE, which is right for a verdict and wrong for anything the record *knew*. Reproduced while smoke-testing this release: a dispatch recorded `observed_limits {tpm: 5000}` and 38 seconds later a concurrent write from an older build replaced the record wholesale and the measurement was gone. `observed_limits` and `health` now survive alongside `enabled`, which learned the same lesson first — carried in `writeState` rather than at each call site, so writers that predate the fields, and any added later, cannot drop them. `observed_budget` is deliberately not carried: it describes one 60-second window and expires on its own.
+
+- **`add-model` created entries with no ceiling and said nothing.** That is how `azure-kimi-k2-5-safe` entered the pool. It now points at the audit that would measure it — a warning, not a refusal, because the honest instruction is "go measure it", and refusing would only push the operator into hand-writing a guess.
+
+### Changed
+
+- **README now states what the project is optimizing for**, as five numbered goals with the rule that follows from them: observation beats declaration, and a limit discovered by being rejected is a limit recorded too late. Every check in `doctor` names the goal it defends.
+
+- **A patch was assumed to be newer than what was already on disk.** `writeState` restores a measured field when the patch stays silent about it, and let the patch win outright when it did not — without comparing timestamps. Every writer builds its observation from the call that just finished, so an observation is fresh when it is *built*; but the state lock waits up to ten seconds. A dispatch that returned at T=100 can therefore be blocked until T=106 and write its `seen_at: 100` observation on top of one made at T=105 by a concurrent dispatch to the same agent.
+
+  For a ceiling the damage is usually nil, since it rarely moves between two calls. For `observed_budget` it is not: that field is replaced wholesale, its values genuinely differ call to call, and a stale `remaining_tokens: 0` landing on a fresh `remaining_tokens: 4000` takes a healthy seat out of `pick` for the full 120-second TTL. Both fields now keep whichever observation has the greater `seen_at`; an undated one on disk is treated as no evidence about now, the same rule `effectiveCooldownUntil` applies to a verdict that cannot say when it applied. Raised by a consensus reviewer.
+
+- **Two pre-existing test flakes, root-caused rather than re-run until green.** Both asserted on machine-global state while `node --test` runs test files in parallel processes. The signal-handler cleanup test ran with `timeoutMs: 1000`, so it was also asserting that a cold `node` spawn beats one second under parallel load — it failed ~1 run in 6 with `exitCode 124` at ~1450 ms, never reaching the assertions it existed for. The temp-directory test counted *every* `ea-gen-*` directory in the OS temp dir, so any other file's dispatch creating or sweeping one between a `before` and its assertion changed the number — ~1 run in 10, while passing 5/5 in isolation. The counter is now scoped to its own fixture's agent id, and a mutation test confirms it still fails when a failed dispatch really does create a workdir.
+
+- **An empty `pick` exited 3 with nothing to say.** "Everything is cooled down", "everything is quarantined" and "your prompt is bigger than every seat you have" are three different problems with three different remedies, and they were indistinguishable from a bare exit code. `pick` now prints one line naming the funnel:
+
+  ```
+  pick: no candidates out of 53 entries — 17 cooling down (quota_exhausted);
+  14 prompt too large (needs 22500000 tokens); 10 switched off; 10 excluded by
+  transport, tags, effort or an explicit --exclude; 2 cooling down (errored_transient)
+  ```
+
+  A reviewer raised this as "the quarantine filter can empty the pool". It can — and so could the cooldown filter long before any of this, so the claimed invariant was overstated and is now written down accurately. The proposed remedy (ignore quarantine when it would empty the set) was declined: a pool where every agent has been tried eight times and never once answered has no working credentials, and re-offering those seats spends another round discovering it. Describing the state is the fix; papering over it is not.
+
+MINOR: additive. New subcommand, new state fields, no breaking change to the registry or to any existing flag. Full suite: 358 tests, 357 pass, 0 fail, 1 skipped (pre-existing), repeated clean runs after both flake fixes. Verified end to end against the live pool, not only in tests — the ledger learned `tpm: 5000` for azure and `tpm: 8000` for six groq keys that had declared nothing, and `pick` changed its answer accordingly.
+
 ## [0.52.1] - 2026-08-31
 
 ### Fixed

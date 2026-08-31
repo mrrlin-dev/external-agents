@@ -1990,6 +1990,7 @@ const server = http.createServer(async (req, res) => {
           checked: Math.floor(Date.now() / 1000),
           cooldown_until,
           source: cooldownSource,
+          verifyResult: v,
         }),
       });
     }

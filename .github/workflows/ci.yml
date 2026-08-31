@@ -29,6 +29,13 @@ jobs:
           node -c lib/state.js
           node -c lib/dispatch.js
           node -c lib/pick.js
+          node -c lib/outcome.js
+          node -c lib/budget.js
+          node -c lib/doctor.js
+      - name: Shell scripts parse
+        run: |
+          bash -n scripts/doctor-daily.sh
+          bash -n scripts/install-doctor-schedule.sh
       - name: Unit tests
         run: node --test lib/*.test.js
       - name: Registry loads

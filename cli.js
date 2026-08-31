@@ -22,11 +22,12 @@ import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.j
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown, deriveDisplayState } from "./lib/state.js";
 import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult, shouldPersistOutcome, repoProvenance, sweepDispatchTemp } from "./lib/dispatch.js";
-import { pickAgents, providerFamily, isAgentEnabled } from "./lib/pick.js";
-import { nextStateAfterOutcome, sharedQuotaBucketIds } from "./lib/outcome.js";
+import { pickAgents, providerFamily, isAgentEnabled, explainEmptyPick, formatEmptyPick } from "./lib/pick.js";
+import { nextStateAfterOutcome, sharedQuotaBucketIds, withObservations, floorExhaustionReset } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
 import { writeText } from "./lib/stream-write.js";
+import { readDispatchRows, runChecks, formatReport } from "./lib/doctor.js";
 import {
   recordFailure,
   readFailureLogConfig,
@@ -163,7 +164,10 @@ function cmdPick(flags) {
       });
       out = [...out, ...backfill];
     }
-    if (out.length === 0) process.exit(3);
+    if (out.length === 0) {
+      console.error(formatEmptyPick(explainEmptyPick(REGISTRY, state, { filter: baseFilter })));
+      process.exit(3);
+    }
     for (const id of out) console.log(id);
     return;
   }
@@ -171,7 +175,10 @@ function cmdPick(flags) {
   const filter = { ...baseFilter };
   if (flags.tier) filter.tier = flags.tier;
   const picked = pickAgents(REGISTRY, state, { n, filter, min_distinct_providers: minDistinct });
-  if (picked.length === 0) process.exit(3);
+  if (picked.length === 0) {
+    console.error(formatEmptyPick(explainEmptyPick(REGISTRY, state, { filter })));
+    process.exit(3);
+  }
   for (const id of picked) console.log(id);
 }
 
@@ -312,9 +319,22 @@ async function cmdDispatch(args, flags) {
   // Only a `limited` (rate-limit/quota) outcome carries a reset; a plain transient fault climbs the
   // ladder and ignores resetAt.
   const isExhaustion = failure.isExhaustion;
-  const exhaustionResetAt = (!ok && isExhaustion)
-    ? resolveExhaustionResetAt({ text: failText, provider: entry.provider, nowMs: Date.now() })
+  // Headers are passed now that every dispatch return carries them (see the
+  // hoist in lib/dispatch.js). The comment here used to say there were none,
+  // which was true of the CLI transports and quietly wrong for every HTTP one —
+  // so the most precise reset available was being ignored on exactly the
+  // providers that publish it.
+  let exhaustionResetAt = (!ok && isExhaustion)
+    ? resolveExhaustionResetAt({
+        text: failText,
+        headers: result.responseHeaders,
+        provider: entry.provider,
+        nowMs: Date.now(),
+      })
     : undefined;
+  if (!ok && isExhaustion) {
+    exhaustionResetAt = floorExhaustionReset(exhaustionResetAt, result.responseHeaders, now);
+  }
   const prev = readState()[entry.id];
   const nextRec = failure.cliFailure.needsAuth
     ? {
@@ -329,7 +349,7 @@ async function cmdDispatch(args, flags) {
         exhaustionResetAt,
         now,
       });
-  const stateWrite = { [entry.id]: nextRec };
+  const stateWrite = { [entry.id]: withObservations({ base: nextRec, prev, result, ok, now }) };
   // One allowance, many entries: an account-wide free tier is exhausted for
   // every sibling the moment one of them hits it, so they go down together
   // rather than being picked in turn to rediscover the same cap.
@@ -795,6 +815,7 @@ async function cmdAudit(flags) {
               checked: Math.floor(Date.now() / 1000),
               cooldown_until,
               source: cooldownSource,
+              verifyResult: v,
             }),
           });
         }
@@ -902,6 +923,26 @@ async function cmdAddModel(flags) {
   console.log(`${replaced ? "replaced" : "added"}: ${entry.id}`);
   console.log(`wrote:    ${LOCAL_PATH}`);
   console.log(`re-run 'external-agents probe ${entry.id}' to verify.`);
+
+  // A new entry with no ceiling anywhere is the shape that costs the most.
+  // `azure-kimi-k2-5-safe` was added this way, declared nothing, and turned out
+  // to have a 5000-token-per-minute cap — so every review prompt sent to it was
+  // arithmetically impossible and it failed 47% of the time for weeks.
+  //
+  // A warning, not a refusal: `audit` now reads the ceiling straight out of the
+  // provider's response headers, so the honest instruction is "go measure it",
+  // and refusing would only push the operator into hand-writing a guess.
+  const voiceOf = (e) => `${providerFamily(e.provider)}::${e.model || e.id}`;
+  const siblingHasLimits = REGISTRY.agents.some(
+    (a) => a.id !== entry.id && a.token_limits && voiceOf(a) === voiceOf(entry),
+  );
+  if (!entry.token_limits && !siblingHasLimits) {
+    console.log("");
+    console.log(`note:     ${entry.id} declares no token_limits, and no sibling key declares any.`);
+    console.log(`          Until something measures its ceiling, pick cannot keep an oversized`);
+    console.log(`          prompt away from it. Run 'external-agents audit --provider ${entry.provider}'`);
+    console.log(`          — the probe reads the real limits out of the response headers.`);
+  }
 }
 
 // --- failures -----------------------------------------------------
@@ -1008,6 +1049,44 @@ function cmdUi(flags) {
   cmdInit(flags);
 }
 
+// `doctor` — check the five goals in README against the telemetry, daily.
+//
+// Deliberately a subcommand and not a personal script: every defect this guards
+// was found by reading these same logs by hand, weeks after the fact. A check
+// that ships with the tool runs for everybody who installs it, gets tested in
+// CI, and cannot rot in somebody's home directory.
+function cmdDoctor(flags) {
+  const now = Math.floor(Date.now() / 1000);
+  const since = now - parseWindowSeconds(flags.since ?? "24h");
+  const result = runChecks({
+    rows: readDispatchRows(),
+    registry: REGISTRY,
+    state: readState(),
+    since,
+    now,
+  });
+  if (flags.json) {
+    console.log(JSON.stringify(result, null, 2));
+    // Same convention as the human report: only a `high` finding fails the run.
+    process.exit(result.findings.some((f) => f.severity === "high") ? 1 : 0);
+  }
+  const { text, exitCode } = formatReport(result);
+  console.log(text);
+  process.exit(exitCode);
+}
+
+/** `--since 24h | 7d | 90m | 3600` → seconds. */
+function parseWindowSeconds(raw) {
+  const s = String(raw).trim();
+  const m = /^(\d+(?:\.\d+)?)\s*([smhd]?)$/i.exec(s);
+  if (!m) die(`doctor: --since must look like 24h, 7d, 90m or a number of seconds (got '${raw}')`, 2);
+  const n = parseFloat(m[1]);
+  const mult = { s: 1, m: 60, h: 3600, d: 86400, "": 1 }[m[2].toLowerCase()];
+  const secs = Math.round(n * mult);
+  if (!(secs > 0)) die("doctor: --since must be positive", 2);
+  return secs;
+}
+
 // --- entrypoint ---------------------------------------------------
 const [, , subcmd, ...rest] = process.argv;
 const { args, flags } = parseArgs(rest);
@@ -1018,6 +1097,17 @@ const { args, flags } = parseArgs(rest);
 // exactly this — read the agent id, concluded the flag was absent, and silently
 // dropped it, while spending a pick call per probe.
 const helpRequested = flags.help === true || flags.h === true;
+
+// `--version` is what a scheduled job prints into its own report so that "the
+// daily check was running a stale build" is visible instead of invisible. It
+// used to fall through to `default` and die with "unknown subcommand".
+if (subcmd === "--version" || subcmd === "-v" || subcmd === "version") {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "package.json"), "utf-8"),
+  );
+  console.log(pkg.version);
+  process.exit(0);
+}
 
 switch (helpRequested ? "--help" : subcmd) {
   case "pick":     cmdPick(flags); break;
@@ -1033,6 +1123,7 @@ switch (helpRequested ? "--help" : subcmd) {
   case "audit":    await cmdAudit(flags); break;
   case "add-model": cmdAddModel(flags); break;
   case "failures": cmdFailures(args, flags); break;
+  case "doctor":   cmdDoctor(flags); break;
   case "help":
   case "--help":
   case undefined:
@@ -1066,6 +1157,11 @@ switch (helpRequested ? "--help" : subcmd) {
   ui [--port N] [--host H] [--no-open]   # local dashboard (auto-opens in browser; use --no-open for SSH/tmux)
   init                                    # alias for 'ui' — kept for backward compat
   set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin
+  doctor [--since 24h|7d] [--json]
+       (checks the five goals in README against the dispatch log: oversized dispatches, seats
+        with no measured ceiling, agents that never answer, success rate, tier balance, and
+        provider allowance left unspent. Exit 1 on a high-severity finding, 0 otherwise —
+        so it is safe to run from cron and only shouts when it matters.)
   audit [--provider P] [--include-disabled] [--json]
                                    # force API round-trip for every ENABLED registry entry (or just PROVIDER); writes state.json outcomes (healthy / needs_auth / model_unavailable / rate_limited)
                                    # disabled entries are skipped — they cannot be dispatched, and for prepaid providers auditing them spends real money; --include-disabled overrides

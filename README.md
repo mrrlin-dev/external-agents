@@ -23,6 +23,40 @@ It's also a clean substrate for [LLM-Council](https://github.com/karpathy/llm-co
 
 ---
 
+## What this is optimizing for
+
+Every design decision in here answers to five goals. They are the reason the project exists,
+and they are measurable — when a change makes one of these numbers worse, that is a
+regression, whatever else it improved.
+
+1. **A seat that gets handed out is alive.** `pick` returning an agent is a claim that a
+   dispatch to it can succeed *right now*. An agent that has never once answered must not be
+   offered as though it might.
+2. **A prompt that gets sent fits.** The chosen seat's real ceiling — context window, tokens
+   per minute, whatever is left of the current window — has to hold the whole prompt before
+   it goes out. An HTTP 413 or a token-limit 429 is a routing bug, not bad luck.
+3. **More successes, fewer failures.** A failed dispatch is a round of work thrown away, and
+   inside a consensus panel it is a lost voice — the run gets a thinner verdict, not just a
+   slower one.
+4. **Load spreads across the live models of a tier.** No key carries a whole tier while its
+   siblings idle, and a broken agent must not be re-offered *faster* than a working one just
+   because failing is quick.
+5. **Provider limits get spent, not admired.** A free tier that resets unused every night is
+   tokens thrown in the bin. The pool should approach each bucket's ceiling rather than sit
+   at one percent of it.
+
+Goals 1, 2 and 5 all need the same thing, and it is worth stating plainly: **the provider
+tells you the answer on every single response.** `x-ratelimit-limit-tokens`,
+`x-ratelimit-remaining-tokens`, `x-ratelimit-reset-*` — the real ceiling for *your* key and
+how much of it is left, on success as well as on failure. A registry entry is a guess about
+that; a response header is a measurement. So the rule this codebase follows is: **observation
+beats declaration**, and a limit discovered by being rejected is a limit that was recorded too
+late.
+
+These numbers are watched rather than asserted — see [Watching the pool for regressions](#watching-the-pool-for-regressions).
+
+---
+
 ## 🚀 2-minute setup
 
 ```bash
@@ -190,6 +224,49 @@ external-agents add-model \
 ```
 
 That writes to `~/.local/state/external-agents/agents.local.yaml`, layered over the bundled registry — same id replaces, new id appends. Package upgrades never clobber it. Full walkthrough: [docs/adding-a-provider.md](docs/adding-a-provider.md).
+
+---
+
+## Watching the pool for regressions
+
+The five goals above are checked, not assumed:
+
+```bash
+external-agents doctor                # last 24h
+external-agents doctor --since 7d     # a wider window
+external-agents doctor --json         # machine-readable, same checks
+```
+
+One check per goal, each carrying the evidence that lets you verify or dismiss it and the
+command that fixes it. Exit code is **1 only on a high-severity finding** and 0 otherwise, so
+it is safe to run unattended and only shouts when something actually broke.
+
+| Check | Goal | Means |
+| --- | --- | --- |
+| `oversized_dispatch` | 2 | An HTTP 413 happened. With measured ceilings this should be unreachable. |
+| `unmeasured_seat` | 2 | An enabled HTTP seat has no ceiling, declared or observed — nothing can protect it. |
+| `never_answered` | 1 | An agent was dispatched repeatedly and never once succeeded. |
+| `success_rate` | 3 | The window fell below the floor. |
+| `tier_imbalance` | 4 | One seat is taking far more than its share of a tier. |
+| `idle_bucket` | 5 | A known allowance is going unspent, and nothing says the family is capped elsewhere. |
+
+### Every day, without being asked
+
+```bash
+scripts/install-doctor-schedule.sh --at 09:15 --run
+scripts/install-doctor-schedule.sh --status
+scripts/install-doctor-schedule.sh --uninstall
+```
+
+launchd on macOS, `crontab` elsewhere. The job runs **audit first, then doctor**, and that
+order is the whole design: `audit` is one `max_tokens: 1` ping per entry, and the response
+carries the provider's real rate-limit ceiling — so the measuring pass fixes the most common
+finding instead of merely reporting it. A watchdog that repairs what it can is worth keeping;
+one that only complains gets muted.
+
+Reports land in `~/.local/state/external-agents/doctor/` — `latest.txt` plus one dated
+`.txt`/`.json` per day, pruned after 30 days. A high-severity finding also raises a desktop
+notification.
 
 ---
 
