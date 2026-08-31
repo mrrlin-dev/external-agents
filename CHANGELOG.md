@@ -4,6 +4,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-08-31
+
+### Fixed
+
+- **A provider error delivered inside a 200 envelope was scored as a generic fault instead of the quota event it was.** OpenAI-compatible endpoints are supposed to signal failure with a status code and several do not: a 200 arrives carrying `{"error": {"code": 429, …}}` and no `choices`. That was already treated as a failure — but for the wrong reason. With `choices` absent the completion is empty, so the run was reported as `empty generated output`, and since the classifier reads only `stderr + output`, the envelope's own words never reached it. A real 429 therefore got the transient-failure ladder instead of a quota cooldown, and the account-wide free-tier bucket was never marked. Same shape as a 0-byte file passing for work, one layer up.
+
+  The envelope is now inspected before the completion, and its numeric code stands in for the HTTP status, so the failure reads `HTTP 429` exactly as it would have on a correctly-coded response. A slug code (`rate_limit_exceeded`) is not a status but is folded into the message, where the classifier can still see it.
+
+  **The sibling case is deliberately NOT covered, and a test pins that.** A 200 whose *content* discusses a rate limit is the model's answer, not a failure; inferring otherwise is the prose-guessing that four rounds of consensus rejected for the CLI-side guard in 0.52.0. Structured evidence is acted on, prose is not.
+
+PATCH: no API change, no new setting. Full suite: 291 pass, 0 fail, 1 skipped (pre-existing), four consecutive clean runs — one earlier run failed once and did not reproduce, so the likeliest cause was removed rather than left to chance: the new tests' HTTP server close is now awaited instead of fire-and-forget.
+
 ## [0.52.0] - 2026-08-31
 
 ### Fixed
