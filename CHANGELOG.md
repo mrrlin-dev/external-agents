@@ -4,6 +4,23 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Added
+
+- **`external-agents doctor` now measures what a subscription seat actually served.** A CLI transport has no rate-limit headers, so its ceiling cannot be observed the way an HTTP seat's can — but whatever it served *between running out twice* IS the allowance for that period, in the provider's own accounting, with no guessing. Live on the current pool: `groq-gpt-oss-120b-2` served 71 dispatches / 396,827 tokens over ~94h; `azure-kimi-k2-5-safe` 7 dispatches / 49,393 tokens over ~1h, which is its 5000-token minute showing up as a period measurement.
+
+  Reported and **never gated on**, deliberately: a ceiling set too high costs nothing (exhaustion still stops us) while one set too low silently discards the rest of the allowance with nothing failing to point at — the same pathology as a provider sitting at 0.5% utilization. Two exhaustions closer together than an hour are treated as one event hit repeatedly rather than two periods.
+
+- **`doctor --json` reports per-agent spend**, separating measured tokens from an honest `tokens_unknown` count. Before the CLI usage adapter below, every CLI seat's entire history was in that unknown column.
+
+- **`usage_from` in the registry, and `lib/cli-usage.js` to interpret it.** Token accounting for CLI transports, which the 0.53.0 header ledger structurally could not reach.
+
+### Fixed
+
+- **A CLI's reset time was being guessed at when it was stated, or knowable.** Three distinct cases, all in `lib/quota-reset.js` — a bare `try again at 3:03 PM` (unparseable, fell to a 48-hour default on six recorded rows, throwing a working seat away for two days to wait out minutes), `Resets in 4h30m14s` (the hand-rolled pattern dropped the seconds and rejected a seconds-only form outright), and cursor-agent stating no period at all (48-hour default, re-seated ~15 times a month against a monthly allowance).
+
+MINOR pending release.
+
+
 ## [0.53.0] - 2026-08-31
 
 Measured over 8079 dispatches across 40 days: **19.7% of all dispatches were thrown away**, 26.9% over the trailing week, and rising. Three quarters of that loss was predictable from data the providers were already handing us and the pool was discarding.
