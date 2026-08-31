@@ -774,7 +774,10 @@ agents:
     tags: [quick, free]
     auth: "env:OLLAMA_API_KEY"
     # aider/litellm's ollama_chat provider reads OLLAMA_API_KEY straight from
-    # the process env itself -- only the base URL needs to move here.
+    # the process env itself -- only the base URL needs to move here. Note
+    # this means an exported OLLAMA_API_KEY also rides along on any cli:ollama
+    # dispatch in the same process (litellm attaches it regardless of base
+    # URL) -- harmless against a real local daemon, which ignores auth.
     env:
       OLLAMA_API_BASE: "https://ollama.com"
     preference_order: 20
@@ -808,6 +811,10 @@ agents:
     tier: strong
     tags: [quick, free]
     auth: "env:OLLAMA_API_KEY"
+    # No preference_order here, same as its ollama-gpt-oss-120b cli sibling --
+    # this mirrors the pre-existing cli pair's ordering exactly rather than
+    # inventing new symmetry between the two -key entries; ?? 999 in
+    # lib/pick.js:208 makes it sort after the 20b-key's explicit 20.
     env:
       OLLAMA_API_BASE: "https://ollama.com"
     usage_url: "https://ollama.com/settings/keys"
