@@ -4,6 +4,28 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-08-31
+
+### Fixed
+
+- **A run that returned nothing but provider errors was reported as `outcome: success`.** Recorded live: a planner dispatch came back with a trailer saying success while its content was rate-limit errors and no plan, and the sidecar failure log had no row for it, because only failures are recorded and this was not counted as one.
+
+  Two guards existed for exactly this class and a single **0-byte file** defeated both — each opened with `if (files.length > 0) return code;`. That is not a corner case but the ordinary shape of a failed planner run: `buildAiderArgs` refuses to run without a `--file`, aider touches a declared path that does not exist into existence, and a planner is told to write its plan to exactly such a path. Measured: a 0-byte file plus an all-429 stdout returned exit 0.
+
+  The worst consequence was not the label. Success resets `consecutive_failures` and writes `state: healthy`, so a rate-limited agent looked healthy and was picked again at once — defeating the escalating cooldown AND the account-wide free-tier bucket collapse, since a 429 arriving as exit 0 never marks the bucket.
+
+  A file is now evidence of work only if it has content. A deletion or rename still counts despite carrying no bytes — without that clause a successful deletion would be re-coded as a failure, which is worse than the bug. Bytes are used when the listing has them and resolved from disk when it does not, so neither `listFiles` nor `parseGitPorcelain` changes shape and a successful run does no extra filesystem work at all. The resolution realpaths the **candidate** path, not just the root, because a symlink inside the workdir pointing outside it passes a string-prefix test, and it fails closed on anything it cannot confirm — safe only because the guard is unreachable until a provider-error pattern has already matched.
+
+  Scope deliberately unchanged elsewhere: `emptyRunExitCode` is untouched, so "create an empty file" is still a success unless the run also printed a provider error.
+
+### Added
+
+- **`failure_markers`, an optional per-transport list of strings that mean "this run failed" despite an exit code of 0.** Ships with `kiro`'s observed `Monthly request limit reached` and nothing invented. An entry that declares none keeps its previous behaviour exactly.
+
+  Declared as data rather than pattern-matched in code because a vocabulary spanning unrelated CLIs cannot be defined: a four-round consensus rejected both a generalised regex and a "the banner appeared twice" repetition heuristic, on the grounds that neither "provider-error marker" nor "substantive line" has a definition across `opencode`, `kiro`, `codex` and the `agy` family — which makes such a rule unimplementable and untestable, and risks re-coding legitimate answers that merely discuss rate limits. Wording drift is real, and is now fixed by editing data (the registry, or `agents.local.yaml` per machine) instead of shipping a release. Detecting drift automatically is an explicit non-goal.
+
+MINOR: one new optional registry field, no change to any existing default beyond the corrected exit code above. Full suite: 287 pass, 0 fail, 1 skipped (pre-existing). Design passed the consensus gate at round 4 on a full four-voice panel with zero critical issues; rounds 1-3 dissented and each objection is reflected above.
+
 ## [0.51.1] - 2026-08-30
 
 ### Fixed

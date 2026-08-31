@@ -95,6 +95,28 @@
 # entry with none of them still dispatches normally; a consumer falls back to
 # "not documented yet" rather than treating their absence as an error.
 #
+# `failure_markers` (optional, per TRANSPORT) — strings that mean "this run
+# failed" even though the CLI exited 0. An agentic CLI that hits an upstream
+# rate limit routinely prints its error and returns 0; reported verbatim that is
+# `outcome: success` for work that never happened, and because success resets
+# the failure streak the agent is then re-picked immediately, so the cooldown
+# ladder and the shared-quota collapse never fire.
+#
+# Applied only when the run left NO substantive output: a file with content, or
+# a deletion, means the run did something and the markers are ignored. aider has
+# a built-in litellm pattern and needs no markers.
+#
+# Declared per entry rather than pattern-matched in code on purpose. A vocabulary
+# spanning unrelated CLIs cannot be defined — "provider-error marker" has no
+# meaning across `opencode`, `kiro`, `codex` and the `agy` family — so a guessed
+# regex would be unimplementable and untestable, and a heuristic that infers
+# which unknown lines are errors would re-code real answers (plans about 429
+# handling are written in this repo regularly). Wording drift is real and is
+# fixed by editing this list, or `agents.local.yaml` per machine, rather than by
+# shipping a release. Detecting drift automatically is an explicit non-goal.
+#
+# An entry that declares nothing keeps its previous behaviour exactly.
+#
 # `token_limits` (optional) — machine-readable sizing/throughput facts for
 # whoever is PICKING an agent for a prompt (a human, or an LLM orchestrator
 # reading this file before calling dispatch), so an oversized or too-frequent
@@ -852,6 +874,13 @@ agents:
     transports:
       edit_exists:
         cmd: "kiro-cli chat --no-interactive --trust-tools=fs_read,fs_write,execute_bash"
+        # Exit-0-with-an-error-body guard (see declaredMarkerExitCode in lib/dispatch.js):
+        # kiro prints this and exits 0, which was reported verbatim as outcome:success.
+        # Declared here rather than pattern-matched in code, because a vocabulary that
+        # spans unrelated CLIs cannot be defined; wording drift is fixed by editing this
+        # list (or the local overlay), not by a release.
+        failure_markers:
+          - "Monthly request limit reached"
         effort_param: flag
         effort_levels: [low, medium, high, xhigh, max]
         effort_flag: "--effort {level}"
