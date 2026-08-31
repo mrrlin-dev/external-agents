@@ -4,6 +4,50 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-08-31
+
+Measured over 8079 dispatches across 40 days: **19.7% of all dispatches were thrown away**, 26.9% over the trailing week, and rising. Three quarters of that loss was predictable from data the providers were already handing us and the pool was discarding.
+
+### Added
+
+- **`external-agents doctor [--since 24h|7d] [--json]`** — checks the five goals now written down in the README against the dispatch log, instead of assuming them. One check per goal, each carrying the evidence to verify or dismiss it and the command that fixes it. Exit 1 on a high-severity finding only, so it is safe to run unattended and only shouts when something actually broke.
+
+- **A daily schedule for it.** `scripts/install-doctor-schedule.sh` (launchd on macOS, `crontab` elsewhere) runs `scripts/doctor-daily.sh`, which does **audit first, then doctor**. That order is the design: `audit` is one `max_tokens: 1` ping per entry and the response carries the provider's real ceiling, so the measuring pass repairs the most common finding rather than reporting it. Reports land in `~/.local/state/external-agents/doctor/`, pruned after 30 days.
+
+- **`external-agents --version`.** It used to die with `unknown subcommand`. A scheduled job needs it to record which build it actually ran, or "the nightly check was testing a stale build" stays invisible.
+
+### Fixed
+
+- **Rate-limit headers were captured only on failure, so the system could learn a limit only by breaking on it.** Every provider in the pool publishes `x-ratelimit-limit-tokens` / `-remaining-tokens` / `-reset-*` on a **200** as well as a 429; the success path built no header object at all. By the time a 429 arrived the information was an autopsy, and the identical headers on the preceding success had been a warning nobody read.
+
+  Headers are now attached to every return path — including the `max_tokens: 1` audit probe, which turns `audit` into a limits-*discovery* pass — and normalized into two records per agent with deliberately different lifetimes: `observed_limits` (the ceiling, good for weeks) and `observed_budget` (what is left of it, expiring in 120s). `pick` reads the observation **before** the registry's declaration.
+
+  This was the keystone, and the numbers say why. Only **4 of 52** entries declared a `tpm` at all. Both directions of error were live: `azure-kimi-k2-5-safe` declared nothing and really has a **5000-token-per-minute** ceiling, so every review prompt sent to it was arithmetically impossible — 47% failure rate, and the single largest source of lost consensus reviewers; while `groq-llama-3.3-70b` succeeded **59 times above** the 8000 its family was assumed to share, so a hand-written family constant would have been wrong the other way. One rule gets both right and nothing has to be maintained by hand.
+
+- **All 251 recorded HTTP 413s were groq, and every one was predictable.** The error body states `Limit 8000, Requested 10098` in as many words; it is now parsed and recorded as the observed ceiling, which makes the most expensive class of failure the measurement that prevents the next one. Measured before/after on the live pool: a 40 KB prompt used to be offered every groq and azure seat and is now offered **none**, while a 4 KB prompt still gets 6 groq seats and 1 azure — routed by size, not blacklisted.
+
+  A tighter bytes→tokens divisor was measured and **rejected**: empirically 4.44 mean / 4.00 median / 3.43 at p5, and moving 4.0 → 3.2 catches 8.4pp more 413s while wrongly blocking 10.7pp more real successes. Break-even at best. The lever is a measured ceiling, not a better guess.
+
+- **`retry-after: 1` on a token-exhausted 429 produced a one-second cooldown.** Azure sends it beside `x-ratelimit-type: Tokens`, `remaining-tokens: 0`, `renewalperiod-tokens: 60` — true about the request bucket, irrelevant while the token minute is empty. Obeying it literally meant an instant re-pick into the same wall: **21 measured re-dispatches inside 60 seconds of an agent's own rate-limit response.** When the provider names tokens as the exhausted axis the cooldown is now floored at that axis's own window. The floor only ever lengthens a cooldown.
+
+- **An agent that had never once answered was ordered exactly like one that always does.** `consecutive_failures` is a streak and deliberately blind to rate limits ("a busy agent is not a bad agent" — that rule stays), so the pool had no long memory at all: **247 dispatches went to agents with a lifetime success rate under 15%**, four of them at exactly zero. `openrouter-gemma-4-31b-free` was seated 73 times and failed 73 times, every day for 40 days, because a lapsing cooldown was the only thing anything remembered about it.
+
+  Two mechanisms, kept separate because conflating them is how a pool empties itself. **Quarantine** is a filter whose bar is absolute — never succeeded, in 8 tries — so it cannot mistake an exhausted free tier for a dead model, and `audit` clears it. The **success rate** is a sort key and never a filter: a seat that works 5% of the time belongs after every seat that works 95% of the time and ahead of an empty slot.
+
+- **Least-recently-used was balancing attempts while ignoring outcomes.** `last_used_at` is stamped at dispatch *start*, so LRU was honest — but failures return in 14.7s mean against 47.6s for a success, so a broken seat re-entered the front of the queue about three times quicker than a working one. LRU did not merely tolerate dead agents, it over-sampled them. Ordering is now health band first, LRU inside the band; the band is coarse (four buckets) on purpose, because a finer score would override the tiebreak that spreads load and collapse "balanced across the live models of a tier" into "whichever model is marginally luckiest gets everything".
+
+- **`quota_scope` was declared on 43 entries and read by zero lines of code.** The account-wide-allowance collapse was hardcoded next to it as an openrouter regex, so the pattern kept costing rounds everywhere else: `groq-gpt-oss-120b`, `-20b` and `-qwen3.6-27b` are three entries on **one key** sharing one 8000-TPM window, and exhausting the first left the other two looking healthy to be picked in turn and rediscover the same cap. Now matched from the declaration, on the exact provider slug — `groq2` is a different key with its own allowance and must not be dragged down. OpenRouter keeps its family-wide rule, because there the cap really is per account.
+
+- **A verdict-only write erased measurements.** `writeState` merges per id by REPLACE, which is right for a verdict and wrong for anything the record *knew*. Reproduced while smoke-testing this release: a dispatch recorded `observed_limits {tpm: 5000}` and 38 seconds later a concurrent write from an older build replaced the record wholesale and the measurement was gone. `observed_limits` and `health` now survive alongside `enabled`, which learned the same lesson first — carried in `writeState` rather than at each call site, so writers that predate the fields, and any added later, cannot drop them. `observed_budget` is deliberately not carried: it describes one 60-second window and expires on its own.
+
+- **`add-model` created entries with no ceiling and said nothing.** That is how `azure-kimi-k2-5-safe` entered the pool. It now points at the audit that would measure it — a warning, not a refusal, because the honest instruction is "go measure it", and refusing would only push the operator into hand-writing a guess.
+
+### Changed
+
+- **README now states what the project is optimizing for**, as five numbered goals with the rule that follows from them: observation beats declaration, and a limit discovered by being rejected is a limit recorded too late. Every check in `doctor` names the goal it defends.
+
+MINOR: additive. New subcommand, new state fields, no breaking change to the registry or to any existing flag. Full suite: 348 tests, 347 pass, 0 fail, 1 skipped (pre-existing), repeated runs clean. Verified end to end against the live pool, not only in tests — the ledger learned `tpm: 5000` for azure and `tpm: 8000` for six groq keys that had declared nothing, and `pick` changed its answer accordingly.
+
 ## [0.52.1] - 2026-08-31
 
 ### Fixed

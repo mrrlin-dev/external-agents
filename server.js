@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadRegistry } from "./lib/registry.js";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, effectiveCooldownUntil } from "./lib/state.js";
-import { nextStateAfterOutcome, sharedQuotaBucketIds } from "./lib/outcome.js";
+import { nextStateAfterOutcome, sharedQuotaBucketIds, withObservations, floorExhaustionReset } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, classifyDispatchFailure, resolveEscalation, getStats } from "./lib/dispatch.js";
 import { recordFailure } from "./lib/failure-log.js";
@@ -389,8 +389,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       : classifyDispatchFailure(failText);
     const isExhaustion = failure.isExhaustion;
     // limited (rate-limit/quota) → resolve the real reset (period/provider-aware); transient → none.
+    // Headers are fed in and the token axis floored — same helpers as the CLI
+    // path, so the two surfaces cannot drift on the thing that actually decides
+    // how long a rate-limited seat stays out.
     const exhaustionResetAt = (!ok && isExhaustion)
-      ? resolveExhaustionResetAt({ text: failText, provider: entry.provider, nowMs: Date.now() })
+      ? floorExhaustionReset(
+          resolveExhaustionResetAt({
+            text: failText,
+            headers: result.responseHeaders,
+            provider: entry.provider,
+            nowMs: Date.now(),
+          }),
+          result.responseHeaders,
+          now,
+        )
       : undefined;
     const prevRec = readState()[entry.id];
     const nextRec = nextStateAfterOutcome(prevRec, {
@@ -399,7 +411,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       exhaustionResetAt,
       now,
     });
-    const stateWrite = { [entry.id]: nextRec };
+    const stateWrite = { [entry.id]: withObservations({ base: nextRec, prev: prevRec, result, ok, now }) };
     // Same account-wide-free-tier collapse as the CLI path — the two dispatch
     // surfaces write state through the same helpers so they cannot drift.
     if (!ok && isExhaustion) {
