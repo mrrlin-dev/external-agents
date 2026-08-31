@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-08-31
+
 ### Added
 
 - **`external-agents doctor` now measures what a subscription seat actually served.** A CLI transport has no rate-limit headers, so its ceiling cannot be observed the way an HTTP seat's can — but whatever it served *between running out twice* IS the allowance for that period, in the provider's own accounting, with no guessing. Live on the current pool: `groq-gpt-oss-120b-2` served 71 dispatches / 396,827 tokens over ~94h; `azure-kimi-k2-5-safe` 7 dispatches / 49,393 tokens over ~1h, which is its 5000-token minute showing up as a period measurement.
@@ -25,7 +27,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 - **A CLI's reset time was being guessed at when it was stated, or knowable.** Three distinct cases, all in `lib/quota-reset.js` — a bare `try again at 3:03 PM` (unparseable, fell to a 48-hour default on six recorded rows, throwing a working seat away for two days to wait out minutes), `Resets in 4h30m14s` (the hand-rolled pattern dropped the seconds and rejected a seconds-only form outright), and cursor-agent stating no period at all (48-hour default, re-seated ~15 times a month against a monthly allowance).
 
-MINOR pending release.
+MINOR: additive. New module (`lib/cli-usage.js`), new registry field (`usage_from`), new `doctor` check; the only removal is the two cron-wrapper scripts, superseded a day after shipping. No breaking change to any existing flag. Full suite: 386 tests, 385 pass, 0 fail, 1 pre-existing skip, repeated clean runs. Verified live against the real CLI, not only in tests.
+
+Reviewed over two consensus rounds. Round 1 surfaced one real defect (a bare number read as seconds); round 2 surfaced two more (a truncated event stream passing an intermediate count as totals, and a dunder path segment satisfying a lookup that promised to refuse it). Six other raised items were answered with measurements rather than accepted — three of those were wrong on the facts, and the checks are recorded in the commits.
 
 
 ## [0.53.0] - 2026-08-31
