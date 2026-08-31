@@ -4,6 +4,34 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-08-31
+
+### Added
+
+- **`external-agents doctor` now measures what a subscription seat actually served.** A CLI transport has no rate-limit headers, so its ceiling cannot be observed the way an HTTP seat's can — but whatever it served *between running out twice* IS the allowance for that period, in the provider's own accounting, with no guessing. Live on the current pool: `groq-gpt-oss-120b-2` served 71 dispatches / 396,827 tokens over ~94h; `azure-kimi-k2-5-safe` 7 dispatches / 49,393 tokens over ~1h, which is its 5000-token minute showing up as a period measurement.
+
+  Reported and **never gated on**, deliberately: a ceiling set too high costs nothing (exhaustion still stops us) while one set too low silently discards the rest of the allowance with nothing failing to point at — the same pathology as a provider sitting at 0.5% utilization. Two exhaustions closer together than an hour are treated as one event hit repeatedly rather than two periods.
+
+- **`doctor --json` reports per-agent spend**, separating measured tokens from an honest `tokens_unknown` count. Before the CLI usage adapter below, every CLI seat's entire history was in that unknown column.
+
+- **`usage_from` in the registry, and `lib/cli-usage.js` to interpret it.** Token accounting for CLI transports, which the 0.53.0 header ledger structurally could not reach.
+
+### Removed
+
+- **`scripts/doctor-daily.sh` and `scripts/install-doctor-schedule.sh`.** Shipped in 0.53.0 and superseded a day later. `doctor` is the tested half of a daily check — thresholds, evidence, a remedy per finding, an exit code — and a launchd/cron wrapper was the wrong other half: the interesting part of a daily check is deciding what in the output is worth waking somebody for, which is a judgement, not a cron line. A scheduled Claude task does that better and needs no shipped shell. The `doctor` command itself stays; it is what such a task runs.
+
+  Removing them also drops the two defects they carried: a `set -o pipefail` + `grep -q` pipeline that made `--status` report a loaded job as not loaded (`grep -q` exits on first match, upstream gets SIGPIPE, `pipefail` fails the whole pipeline), and a feature probe that would have matched `--since` in the general help text of a build with no `doctor` at all.
+
+### Fixed
+
+
+- **A CLI's reset time was being guessed at when it was stated, or knowable.** Three distinct cases, all in `lib/quota-reset.js` — a bare `try again at 3:03 PM` (unparseable, fell to a 48-hour default on six recorded rows, throwing a working seat away for two days to wait out minutes), `Resets in 4h30m14s` (the hand-rolled pattern dropped the seconds and rejected a seconds-only form outright), and cursor-agent stating no period at all (48-hour default, re-seated ~15 times a month against a monthly allowance).
+
+MINOR: additive. New module (`lib/cli-usage.js`), new registry field (`usage_from`), new `doctor` check; the only removal is the two cron-wrapper scripts, superseded a day after shipping. No breaking change to any existing flag. Full suite: 386 tests, 385 pass, 0 fail, 1 pre-existing skip, repeated clean runs. Verified live against the real CLI, not only in tests.
+
+Reviewed over two consensus rounds. Round 1 surfaced one real defect (a bare number read as seconds); round 2 surfaced two more (a truncated event stream passing an intermediate count as totals, and a dunder path segment satisfying a lookup that promised to refuse it). Six other raised items were answered with measurements rather than accepted — three of those were wrong on the facts, and the checks are recorded in the commits.
+
+
 ## [0.53.0] - 2026-08-31
 
 Measured over 8079 dispatches across 40 days: **19.7% of all dispatches were thrown away**, 26.9% over the trailing week, and rising. Three quarters of that loss was predictable from data the providers were already handing us and the pool was discarding.
