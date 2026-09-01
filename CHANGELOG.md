@@ -4,6 +4,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-09-01
+
+### Fixed
+
+- **Cached input is counted.** `input_tokens` is not the input. Measured on a live `claude --print --output-format json` run: `input_tokens: 10`, `cache_creation_input_tokens: 16104`, `cache_read_input_tokens: 21675` — the field the log recorded was **0.03% of the 37,789 tokens the request actually processed**. Every CLI seat that caches was reporting a number three orders of magnitude too small, which is worse than the zero it replaced: a zero is visibly a gap, and 10 looks like an answer.
+
+  `cache_read` and `cache_write` are now parsed (`usage_from` gained `cache_write`), stored on the dispatch-log row, aggregated by `get_stats` per agent and per transport, carried through the daily rollup and `stats --compare`, and shown as their own columns in `stats`.
+
+### Changed
+
+- **Two different right answers, kept apart.** Cached tokens are stored raw and summed two ways, because a single field would be wrong for one of the two questions: `totalTokens` counts everything 1:1 (they were all processed — weighting would understate throughput), while `billableTokens` applies the real price tiers (a cache write costs ~1.25× a base input token, a cache read ~0.1×). The dashboard's token count uses the first; its estimated-saving tile uses the second, because charging the anchor rate against raw cached tokens would inflate that tile roughly tenfold on exactly the seats it exists to justify.
+
+  Nothing is restated retroactively: the fields did not exist before this release, so history stays null and the numbers start from the next dispatch.
+
 ## [0.56.1] - 2026-09-01
 
 ### Fixed

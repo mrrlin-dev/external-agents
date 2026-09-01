@@ -1302,6 +1302,7 @@ agents:
       tokens_in: usage.input_tokens
       tokens_out: usage.output_tokens
       cache_read: usage.cache_read_input_tokens
+      cache_write: usage.cache_creation_input_tokens
       cost_usd: total_cost_usd
     transports:
       edit_exists:
@@ -1372,6 +1373,7 @@ agents:
       tokens_in: usage.input_tokens
       tokens_out: usage.output_tokens
       cache_read: usage.cache_read_input_tokens
+      cache_write: usage.cache_creation_input_tokens
       cost_usd: total_cost_usd
     transports:
       edit_exists:
@@ -1427,6 +1429,7 @@ agents:
       tokens_in: usage.input_tokens
       tokens_out: usage.output_tokens
       cache_read: usage.cache_read_input_tokens
+      cache_write: usage.cache_creation_input_tokens
       cost_usd: total_cost_usd
     transports:
       edit_exists:
