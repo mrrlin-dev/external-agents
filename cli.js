@@ -25,7 +25,7 @@ import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCre
 import { pickAgents, providerFamily, isAgentEnabled, explainEmptyPick, formatEmptyPick } from "./lib/pick.js";
 import { nextStateAfterOutcome, sharedQuotaBucketIds, withObservations, floorExhaustionReset } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
-import { persistCredential, bootEnv, KEYS_FILE } from "./lib/credentials.js";
+import { persistCredential, bootEnv, displayPath, KEYS_FILE } from "./lib/credentials.js";
 import { writeText } from "./lib/stream-write.js";
 import { readDispatchRows, runChecks, formatReport } from "./lib/doctor.js";
 import {
@@ -652,7 +652,7 @@ async function cmdSetCredential(args) {
     const resetIds = resetCooldownsForEnvVar(envName, REGISTRY.agents);
     const enabledIds = enableAgentsAwaitingCredential(envName, REGISTRY.agents);
     // Print to stderr so stdout stays clean for scripting; do NOT echo the value.
-    console.error(`external-agents: ${envName} persisted to ${persistedTo}`);
+    console.error(`external-agents: ${envName} persisted to ${displayPath(persistedTo)}`);
     if (enabledIds.length > 0) {
       console.error(`  Enabled ${enabledIds.length} agent(s) that were off pending this key: ${enabledIds.join(", ")}`);
     }

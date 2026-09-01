@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Fixed
+
+- **The published package no longer carries anyone's home directory.** `docs/03-saved.png` showed a dashboard confirmation reading `/Users/<first>.<last>/.local/state/external-agents/keys.env` — a work machine's home directory is usually somebody's full name, and it shipped inside the npm tarball. No credential was visible (the field had already reset to its placeholder), and the three screenshots involved were referenced by nothing: not the README, not a doc, not the UI. They are removed, which also drops 640 kB from every install.
+
+- **Every path the tool prints now folds the home directory to `~`** (`displayPath` in `lib/credentials.js`), so the next screenshot cannot leak the next person's name either. Applied to the CLI's credential-persisted line and to the dashboard's `persisted_to` response. Folding happens only on an exact segment boundary — `/Users/alice-backup` must not become `~-backup`.
+
 ### Changed
 
 - **`doctor` no longer prescribes a remedy that cannot work.** `unmeasured_seat` used to fire for every enabled HTTP seat with no token ceiling and tell the operator to run `external-agents audit`. For a provider that answers without any rate-limit headers that instruction can never succeed, so the finding came back unchanged every run with a fix that is impossible to apply — the exact "noise in a daily job" this file's own header warns against. Measured: one provider in the pool returns 23 response headers, all vendor plumbing, and not one `x-ratelimit-*`, while the same probe reads a ceiling off two others in under a second.
