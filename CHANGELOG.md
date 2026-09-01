@@ -4,6 +4,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Changed
+
+- **`doctor` no longer prescribes a remedy that cannot work.** `unmeasured_seat` used to fire for every enabled HTTP seat with no token ceiling and tell the operator to run `external-agents audit`. For a provider that answers without any rate-limit headers that instruction can never succeed, so the finding came back unchanged every run with a fix that is impossible to apply — the exact "noise in a daily job" this file's own header warns against. Measured: one provider in the pool returns 23 response headers, all vendor plumbing, and not one `x-ratelimit-*`, while the same probe reads a ceiling off two others in under a second.
+
+  It is two findings now. `unmeasured_seat` (medium) keeps the audit remedy and means *nobody has probed this yet*. `unmeasurable_seat` (low) means *this has been probed and the provider reports nothing*, and its remedy is a hand-written `token_limits` — or the honest option of leaving a seat unsized when it has never actually been rejected. Lower severity on purpose: it has already had the only automatic fix applied to it.
+
+- **`observedFromResponse` records that a provider answered without reporting limits** (`limits_unreported`), rather than discarding it as `null` — which read identically to "we have never asked". Kept out of `observed_limits` deliberately: that block merges field by field, so writing an absence into it would overwrite the provenance of a real measurement while leaving its `tpm` in place. A ceiling arriving later retires the marker.
+
 ## [0.56.0] - 2026-09-01
 
 ### Fixed
