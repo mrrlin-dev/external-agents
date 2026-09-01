@@ -4,6 +4,18 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-09-01
+
+### Changed
+
+- **The dashboard's "estimated saved" is a range now, not a figure.** A design review took the single number apart, and the objection that killed it was not about rates: **the estimate assumed perfectly inelastic demand.** It counted every free token as a paid token avoided, when a large share of this pool's traffic would never have been bought at frontier prices — four-voice consensus panels, retries, audits, probes. That is *induced consumption*, not displaced spend, and no coefficient repairs it because nothing in the dispatch log distinguishes the two. The upper bound is now labelled as what it is: an upper bound that assumes every one of those calls would otherwise have been paid for.
+
+  Two smaller things were also wrong. Input and output are priced ~5× apart ($2 vs $10 per 1M on the anchor model) and were blended into one $3 rate — on this pool's measured 2.09:1 mix that understates by 48%. And the anchor model was named in a comment but never dated, so nothing could tell you when it went stale. Both bounds are now shown, the anchor is named and carries the date its rates were verified, and the calculation moved into `lib/metrics.js` where it can be tested — arithmetic with contested assumptions is exactly the kind that needs tests.
+
+- **A count that needs no counterfactual**, beside the range: how many dispatches were kept off the frontier account. Whatever you believe about what they would have cost, that number is not an estimate.
+
+- **Weighting tokens by seat capability was considered and rejected.** It is a real effect — 10 tokens from a strong seat are not worth 100 from a weak one — but weak seats are only 14.4% of measured volume, so the candidate coefficients moved the total by at most 13.6%, and none of them had any calibration behind them. That is more invented error than the uniform weighting it would have replaced. The distinction it was reaching for is real and belongs in a different metric: this tile measures displaced *spend*, not delivered *value*.
+
 ## [0.57.0] - 2026-09-01
 
 ### Fixed
