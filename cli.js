@@ -28,6 +28,7 @@ import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, displayPath, KEYS_FILE } from "./lib/credentials.js";
 import { writeText } from "./lib/stream-write.js";
 import { readDispatchRows, runChecks, formatReport } from "./lib/doctor.js";
+import { compare as compareWindows, rollup as rollupDaily, getDailyPath } from "./lib/metrics.js";
 import {
   recordFailure,
   readFailureLogConfig,
@@ -544,7 +545,71 @@ function cmdStatus(flags) {
   }
 }
 
+const pct = (r) => (r == null ? "  n/a" : `${(r * 100).toFixed(1)}%`.padStart(6));
+
+// `stats --compare <when>` — the question every fix raises and nothing here
+// could answer: was it actually better afterwards? Two equal windows either
+// side of one instant, because comparing four hours against three weeks proves
+// whatever you want it to.
+function cmdStatsCompare(flags) {
+  const now = Math.floor(Date.now() / 1000);
+  const raw = String(flags.compare);
+  // Accept an instant (2026-09-01T10:55:00Z) or an age (4h, 2d).
+  const at = /^\d/.test(raw) && Number.isFinite(Date.parse(raw))
+    ? Math.floor(Date.parse(raw) / 1000)
+    : now - parseWindowSeconds(raw);
+  if (!Number.isFinite(at)) die(`stats: --compare must be an ISO timestamp or an age like 4h (got '${raw}')`, 2);
+  if (at > now) die("stats: --compare is in the future", 2);
+
+  const windowS = flags.window ? parseWindowSeconds(flags.window) : undefined;
+  const c = compareWindows({ at, now, windowS });
+  if (flags.json) {
+    console.log(JSON.stringify(c, null, 2));
+    return;
+  }
+
+  const hours = (c.window_s / 3600).toFixed(1);
+  console.log(`comparing ${hours}h either side of ${new Date(c.at * 1000).toISOString()}`);
+  if (c.window_clamped) {
+    console.log(`note: asked for ${(c.requested_window_s / 3600).toFixed(1)}h, but only ${hours}h has passed since then — `
+      + "both sides clamped to that so the windows stay equal");
+  }
+  // Named, not implied: the rollup buckets by calendar day, so a window that
+  // starts mid-day is silently widened to that day's boundary.
+  console.log(`source: ${c.source}${c.source === "daily-rollup" ? "  (whole days — the raw log no longer reaches that far back)" : ""}`);
+  console.log();
+  const line = (label, w) => console.log(
+    `  ${label.padEnd(7)} ${String(w.n).padStart(5)} dispatches   ${pct(w.rate)} success   ${String(w.ok).padStart(5)} ok / ${String(w.n - w.ok).padStart(4)} bad`,
+  );
+  line("before", c.before);
+  line("after", c.after);
+  console.log(`  delta   ${c.delta == null ? "n/a — one side has no dispatches" : `${c.delta >= 0 ? "+" : ""}${(c.delta * 100).toFixed(1)} points`}`);
+
+  const moved = c.agents.filter((a) => a.delta != null && Math.abs(a.delta) >= 0.05);
+  if (moved.length) {
+    console.log();
+    console.log("agents that moved (>=5 points):");
+    for (const a of moved.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta)).slice(0, 15)) {
+      console.log(`  ${a.agent_id.padEnd(38)} ${pct(a.before.rate)} -> ${pct(a.after.rate)}  ${a.delta >= 0 ? "+" : ""}${(a.delta * 100).toFixed(0)}pts   (n ${a.before.n} -> ${a.after.n})`);
+    }
+  }
+  // A seat that only appears on one side has no rate to compare and would
+  // otherwise vanish from the report entirely.
+  const oneSided = c.agents.filter((a) => a.delta == null && (a.before.n || a.after.n));
+  if (oneSided.length) {
+    console.log();
+    console.log(`only on one side (no comparison possible): ${oneSided.map((a) => `${a.agent_id}(${a.before.n ? "before" : "after"})`).join(", ")}`);
+  }
+}
+
+function cmdRollup(flags) {
+  const r = rollupDaily();
+  if (flags.json) console.log(JSON.stringify({ ...r, file: getDailyPath() }, null, 2));
+  else console.log(`daily rollup: ${r.rows} row(s) across ${r.days} day(s) -> ${getDailyPath()}`);
+}
+
 function cmdStats(flags) {
+  if (flags.compare !== undefined) return cmdStatsCompare(flags);
   const s = getStats(flags.since);
   if (flags.json) {
     console.log(JSON.stringify(s, null, 2));
@@ -1058,8 +1123,17 @@ function cmdUi(flags) {
 function cmdDoctor(flags) {
   const now = Math.floor(Date.now() / 1000);
   const since = now - parseWindowSeconds(flags.since ?? "24h");
+  const doctorRows = readDispatchRows();
+  // Fold today into the daily rollup while we are holding the rows anyway.
+  // `doctor` is the thing that runs daily, so hanging the rollup off it is what
+  // makes "no day is ever lost" true in practice rather than in principle — and
+  // it is idempotent, so running doctor five times a day costs five rewrites of
+  // a small file and produces the same file each time.
+  //
+  // Best-effort: a rollup that cannot be written must never stop the checks.
+  try { rollupDaily({ rows: doctorRows }); } catch { /* reported by rollup itself */ }
   const result = runChecks({
-    rows: readDispatchRows(),
+    rows: doctorRows,
     registry: REGISTRY,
     state: readState(),
     since,
@@ -1117,6 +1191,7 @@ switch (helpRequested ? "--help" : subcmd) {
   case "verify-read-only": await cmdVerifyReadOnly(args); break;
   case "toggle":   cmdToggle(args, flags); break;
   case "stats":    cmdStats(flags); break;
+  case "rollup":   cmdRollup(flags); break;
   case "ui":       cmdUi(flags); break;
   case "init":     cmdInit(flags); break;
   case "set-credential": await cmdSetCredential(args); break;
@@ -1154,6 +1229,15 @@ switch (helpRequested ? "--help" : subcmd) {
   verify-read-only <agent-id>  # runs the entry's declared read_only cmd against a canary file; exits 1 unless it's provably non-writing
   toggle <agent-id> --enabled|--disabled  # flip the same kill switch as the UI's POST /api/toggle
   stats [--since ISO] [--json]
+  stats --compare <ISO|4h|2d> [--window 24h] [--json]
+       (two equal windows either side of one instant: dispatches, success rate and the
+        delta, overall and per agent. Answers "did that fix help" without a jq pipeline.
+        Reads the raw dispatch log where it still reaches, the daily rollup beyond that,
+        and always says which.)
+  rollup [--json]
+       (fold every day the dispatch log still covers into daily.jsonl, one row per
+        day+agent. Idempotent, and the only thing that lets a comparison outlive the
+        log's 30-day retention. The doctor subcommand runs it for you.)
   ui [--port N] [--host H] [--no-open]   # local dashboard (auto-opens in browser; use --no-open for SSH/tmux)
   init                                    # alias for 'ui' — kept for backward compat
   set-credential <ENV_NAME> [<value> | -]  # persist a key to ~/.local/state/external-agents/keys.env (0600); '-' or omitted = read from stdin

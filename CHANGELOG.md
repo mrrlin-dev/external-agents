@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Added
+
+- **`external-agents stats --compare <when>`** — two equal windows either side of one instant, with dispatches, success rate and the delta, overall and per agent. This exists because of a specific embarrassment: a seat was audited, its ceiling recorded, 21 impossible dispatches a day should have stopped, and the only way to check was to hand-write a `jq` pipeline. A claim that something improved with no way to check it is a claim nobody should accept, including from yourself.
+
+  `when` takes an ISO instant or an age (`4h`, `2d`). The windows are **clamped to be equal**: asking for six hours either side of something that happened ninety minutes ago cannot give you six hours of "after", and quietly returning 6h-before against 1.5h-after is exactly the unequal comparison the command exists to refuse — you get 1.5h either side and it says so. A per-agent delta is `null`, never `0`, when one side has no dispatches: no data and no change are different answers.
+
+- **`external-agents rollup` and `daily.jsonl`** — one summary row per day and agent, so a comparison outlives the dispatch log's 30-day retention. Idempotent by design: a day still present in the raw log is recomputed and overwrites whatever the file had for it, so running it hourly and running it weekly produce the same file, and a day that was folded at noon is replaced when the rest of it arrives. `doctor` runs it while it holds the rows anyway, which is what makes "no day is lost" true in practice rather than in principle. Measured on a live install: 806 rows over 36 days, 133 kB — about 1.3 MB a year against the ~22 MB of raw rows it outlives.
+
+  It is a **summary, not a second copy**: no prompt sizes, no error text, nothing finer than a day, and nothing the raw log redacts.
+
 ### Fixed
 
 - **The published package no longer carries anyone's home directory.** `docs/03-saved.png` showed a dashboard confirmation reading `/Users/<first>.<last>/.local/state/external-agents/keys.env` — a work machine's home directory is usually somebody's full name, and it shipped inside the npm tarball. No credential was visible (the field had already reset to its placeholder), and the three screenshots involved were referenced by nothing: not the README, not a doc, not the UI. They are removed, which also drops 640 kB from every install.
