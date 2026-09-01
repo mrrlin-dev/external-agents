@@ -6,6 +6,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [0.56.0] - 2026-09-01
 
+### Fixed
+
+- **Both logs now redact against the environment the WORKER was handed, not the one this process happens to hold.** A per-entry `env:` block — a literal or an `@file:` reference — is applied to the subprocess only, so a credential injected that way is one the parent never holds and one `redact()`'s value layer therefore could not see. Had a CLI echoed such a key back in an error, it would have been written down verbatim in both `failures.jsonl` and `dispatch-log.jsonl`; the pattern layer might have caught it by shape, but shape is a backstop, not a plan.
+
+  Nothing bundled uses `env:` today, so this is a property being fixed rather than an incident being cleaned up — it was raised by the review panel on the retention change and deferred out of that diff on purpose. The end-to-end test uses a deliberately shapeless secret, so it fails if only the pattern layer is doing the work.
+
 ### Added
 
 - **`dispatch-log.jsonl` now keeps 30 days and drops what is older.** Until now it had no retention at all, while the opt-in sidecar carrying far *more* sensitive content was already capped — the asymmetry was backwards (measured on a live install: 2.4 MB / 8442 rows over 41 days, ~22 MB/year, 281 ms to read on every `get_stats` call).
