@@ -56,6 +56,43 @@ const addProviderInFlight = new Set();
 const HOST = process.env.EXTERNAL_AGENTS_UI_HOST || "127.0.0.1";
 const PORT = Number(process.env.EXTERNAL_AGENTS_UI_PORT) || 4711;
 
+const CURRENT_VERSION = JSON.parse(fs.readFileSync(path.join(__ui_dir, "package.json"), "utf-8")).version;
+
+// Checked at most once an hour — a local dashboard shouldn't hit the npm
+// registry on every page load, and a banner that's stale by an hour costs
+// nothing (unlike a stale healthy/needs_auth pill).
+const VERSION_CHECK_TTL_MS = 60 * 60 * 1000;
+let versionCheckCache = null; // { checked_at, latest }
+async function checkLatestVersion() {
+  const now = Date.now();
+  if (versionCheckCache && now - versionCheckCache.checked_at < VERSION_CHECK_TTL_MS) {
+    return versionCheckCache;
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const r = await fetch("https://registry.npmjs.org/@mrrlin-dev/external-agents/latest", { signal: controller.signal });
+    clearTimeout(timer);
+    if (!r.ok) throw new Error("registry returned " + r.status);
+    const j = await r.json();
+    versionCheckCache = { checked_at: now, latest: j.version };
+  } catch {
+    // Offline, firewalled, or npm is down — never let this show a false
+    // "update available", and never let it block the dashboard from loading.
+    versionCheckCache = { checked_at: now, latest: null };
+  }
+  return versionCheckCache;
+}
+function isNewerVersion(latest, current) {
+  const a = String(latest).split(".").map(Number);
+  const b = String(current).split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0, y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
 function stateRows() {
   const state = readState();
   return REGISTRY.agents.map((entry) => {
@@ -327,6 +364,29 @@ const PAGE = `<!doctype html>
   }
 
   /* ---------- Audit-freshness nag ---------- */
+  /* ---------- Version banner — full-bleed sticky strip pinned above
+     .container, not one of the rounded cards inside it. ---------- */
+  .version-banner {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px; flex-wrap: wrap;
+    padding: 10px 40px; text-align: center;
+    background: var(--info-2); color: var(--text);
+    border-bottom: 1px solid var(--info);
+    font-size: 13px;
+  }
+  .version-banner a { color: var(--info); font-weight: 600; }
+  .version-banner code {
+    background: var(--panel-2); color: var(--text);
+    padding: 1px 6px; border-radius: 3px; font-size: 12px;
+  }
+  .version-banner .vb-close {
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer;
+    color: var(--text-2); font-size: 16px; line-height: 1; padding: 4px 6px;
+  }
+  .version-banner .vb-close:hover { color: var(--text); }
+
   .audit-nag {
     background: var(--panel);
     border: 1px solid var(--info-2);
@@ -686,6 +746,7 @@ const PAGE = `<!doctype html>
 </style>
 </head>
 <body>
+<div id="version-banner" class="version-banner" style="display:none"></div>
 <div class="container">
   <header class="header">
     <h1>external-agents<span class="dot">.</span></h1>
@@ -996,6 +1057,33 @@ function cycleTheme() {
   applyTheme(next);
 }
 applyTheme(localStorage.getItem("theme") || "system");
+
+// Checked once at boot, not on every refresh() — the version doesn't change
+// mid-session, and refresh() can fire every couple seconds after an action.
+async function checkVersion() {
+  try {
+    const v = await fetch("/api/version_check").then(r => r.json());
+    const banner = document.getElementById("version-banner");
+    if (!v.update_available || !v.latest || localStorage.getItem("dismissed_version") === v.latest) {
+      banner.style.display = "none";
+      return;
+    }
+    banner.innerHTML =
+      '<span>external-agents <b>' + esc(v.latest) + '</b> is out — you\\'re on ' + esc(v.current) + '. ' +
+      '<a href="https://github.com/mrrlin-dev/external-agents/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">See what changed</a> · ' +
+      '<code>npm i -g @mrrlin-dev/external-agents@latest</code></span>' +
+      '<button class="vb-close" onclick="dismissVersionBanner(\\'' + esc(v.latest) + '\\')" title="Dismiss">×</button>';
+    banner.style.display = "flex";
+  } catch {
+    // Offline / npm unreachable — stay silent, never block the dashboard.
+  }
+}
+function dismissVersionBanner(latest) {
+  localStorage.setItem("dismissed_version", latest);
+  document.getElementById("version-banner").style.display = "none";
+}
+checkVersion();
+
 function esc(s) {
   return String(s).replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -1605,6 +1693,15 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && p === "/api/stats") {
     return json(res, 200, computeStats(parsed.query.range));
+  }
+
+  if (req.method === "GET" && p === "/api/version_check") {
+    const v = await checkLatestVersion();
+    return json(res, 200, {
+      current: CURRENT_VERSION,
+      latest: v.latest,
+      update_available: v.latest ? isNewerVersion(v.latest, CURRENT_VERSION) : false,
+    });
   }
 
   if (req.method === "POST" && p === "/api/set_credential") {
