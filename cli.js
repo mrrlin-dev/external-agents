@@ -619,7 +619,13 @@ function cmdStats(flags) {
   console.log();
   console.log("by transport:");
   for (const [t, v] of Object.entries(s.by_transport)) {
-    console.log(`  ${t.padEnd(10)} count=${v.count} tokens_in=${v.tokens_in} tokens_out=${v.tokens_out}`);
+    // Cache columns are shown separately rather than folded into tokens_in:
+    // they are real input, but they bill at ~1.25x (write) and ~0.1x (read),
+    // so one summed number would be wrong for either the count or the cost.
+    const cache = (v.cache_read || v.cache_write)
+      ? ` cache_read=${v.cache_read || 0} cache_write=${v.cache_write || 0}`
+      : "";
+    console.log(`  ${t.padEnd(10)} count=${v.count} tokens_in=${v.tokens_in} tokens_out=${v.tokens_out}${cache}`);
   }
   console.log();
   console.log("by agent:");

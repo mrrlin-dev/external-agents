@@ -8,6 +8,7 @@ import { loadRegistry, LOCAL_PATH, CANONICAL_BASES, nextProviderSlot, withLocalO
 import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown } from "./lib/state.js";
 import { verifyCredential, getStats, auditCliEntry, classifyVerifyResult, shouldPersistOutcome } from "./lib/dispatch.js";
 import { bootEnv, refreshEnv, displayPath } from "./lib/credentials.js";
+import { totalTokens, billableTokens } from "./lib/metrics.js";
 // Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
 // before any probe/dispatch runs. Without this, /api/audit sees a blank env
 // and reports all API-key entries as needs_auth.
@@ -166,16 +167,27 @@ function computeStats(range = "24h") {
   const auditStale = auditAgeDays === null || auditAgeDays >= AUDIT_STALE_DAYS;
   const s = getStats(sinceIso);
   const dispatches = s.total || 0;
-  const tokensAll = Object.values(s.by_agent || {})
-    .reduce((sum, a) => sum + (a.tokens_in || 0) + (a.tokens_out || 0), 0);
+  // Cached input counts here at 1:1. It is input the model actually processed,
+  // and for a CLI seat it is most of the input: a measured claude dispatch
+  // reported input_tokens 10 against cache_creation 16104 + cache_read 21675.
+  // Summing only tokens_in/out reported 0.03% of that and made every CLI seat
+  // look idle. Weighting belongs in the money below, not in the count.
+  const tokensAll = Object.values(s.by_agent || {}).reduce((sum, a) => sum + totalTokens(a), 0);
   // We only count "saved" for dispatches that would otherwise cost real money —
   // ie. those that ran on free-tagged agents. Anything else was going to cost
   // something already.
   const freeIds = new Set(rows.filter((r) => (r.tags || []).includes("free")).map((r) => r.id));
   const tokensFree = Object.entries(s.by_agent || {})
     .filter(([id]) => freeIds.has(id))
-    .reduce((sum, [, a]) => sum + (a.tokens_in || 0) + (a.tokens_out || 0), 0);
-  const savedUsd = (tokensFree / 1_000_000) * SAVED_ANCHOR_PER_M;
+    .reduce((sum, [, a]) => sum + totalTokens(a), 0);
+  // Priced, not counted. A cache read bills at ~0.1x a fresh input token and a
+  // cache write at ~1.25x, so charging the anchor rate against raw cached
+  // tokens would inflate this tile by an order of magnitude on any seat that
+  // caches — which is exactly the seat type this number is meant to justify.
+  const billableFree = Object.entries(s.by_agent || {})
+    .filter(([id]) => freeIds.has(id))
+    .reduce((sum, [, a]) => sum + billableTokens(a), 0);
+  const savedUsd = (billableFree / 1_000_000) * SAVED_ANCHOR_PER_M;
   return {
     healthy_count:  healthy,
     locked_count:   locked,
@@ -184,6 +196,7 @@ function computeStats(range = "24h") {
     dispatches:     dispatches,
     tokens:         tokensAll,
     tokens_free:    tokensFree,
+    tokens_free_billable: billableFree,
     saved_usd:      savedUsd,
     saved_anchor:   SAVED_ANCHOR_PER_M,
     range:          rangeKey,
