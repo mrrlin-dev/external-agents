@@ -4,6 +4,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.56.1] - 2026-09-01
+
+### Fixed
+
+- **`doctor`'s `never_answered` no longer asserts a cause it cannot know.** Every non-quarantined case used to be reported at `high` with the detail "this is a regression in the counters or in the pick filter, **not a provider problem**". The first time it fired unattended that sentence was false: the seat had 11 dispatches and 0 successes, and running the check's own remedy returned HTTP 429 `free-models-per-day` — an account-wide free tier that had simply run out, which this project already documents as expected. The counters were fine.
+
+  A free tier running out is a *daily* event once a scheduled job runs `doctor`, so a report that calls it a regression every morning is exactly the noise this check is supposed to avoid. The cause is now read from the state the last audit wrote, not asserted: `rate_limited`/`quota_exhausted` is **low** and supply, with the cooldown time as evidence and no remedy because the seat comes back on its own; `needs_auth`/`model_unavailable`/`not_installed` stays **high** and names the audit to run; and only when nothing in the recorded state explains the failures does the original counters-and-pick-filter diagnosis appear — where it holds.
+
 ### Added
 
 - **`external-agents stats --compare <when>`** — two equal windows either side of one instant, with dispatches, success rate and the delta, overall and per agent. This exists because of a specific embarrassment: a seat was audited, its ceiling recorded, 21 impossible dispatches a day should have stopped, and the only way to check was to hand-write a `jq` pipeline. A claim that something improved with no way to check it is a claim nobody should accept, including from yourself.
