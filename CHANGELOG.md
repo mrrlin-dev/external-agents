@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-09-01
+
+### Added
+
+- **The saved estimate is split by seat capability**, strong and weak side by side, with each tier's dispatch count. Measured on this pool: strong seats $26.69–$39.94 across 1468 calls, weak seats $4.79–$6.95 across 332.
+
+  This is the honest form of an idea that was rejected one release ago in a different shape. A capability *coefficient* — counting a weak seat's token as some fraction of a strong one's — folds a judgement invisibly into a single figure and has nothing to calibrate it against. A *decomposition* carries the same information and invents no number: a reader who thinks a weak-seat token is worth a tenth of a strong one can apply that belief to a figure they can see, and a reader who disagrees is not silently overruled. The two halves sum exactly to the whole, which is the property a coefficient would destroy — and there is a test asserting it.
+
+  A seat with a missing or unrecognised tier is counted as strong, so it receives the same full rate the undecomposed total already gave it and nothing shifts.
+
 ## [0.58.0] - 2026-09-01
 
 ### Changed
