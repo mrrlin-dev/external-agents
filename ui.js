@@ -8,7 +8,7 @@ import { loadRegistry, LOCAL_PATH, CANONICAL_BASES, nextProviderSlot, withLocalO
 import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown } from "./lib/state.js";
 import { verifyCredential, getStats, auditCliEntry, classifyVerifyResult, shouldPersistOutcome } from "./lib/dispatch.js";
 import { bootEnv, refreshEnv, displayPath } from "./lib/credentials.js";
-import { totalTokens, billableTokens } from "./lib/metrics.js";
+import { totalTokens, billableTokens, savedEstimate } from "./lib/metrics.js";
 // Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
 // before any probe/dispatch runs. Without this, /api/audit sees a blank env
 // and reports all API-key entries as needs_auth.
@@ -118,12 +118,37 @@ function findAgent(id) {
   return REGISTRY.agents.find((a) => a.id === id);
 }
 
-// Compute the tile-strip stats. `saved` is a deliberately-conservative estimate:
-// we anchor "what would this have cost on a strong closed model" at Claude
-// Sonnet 4.5 input+output blended ~$3/M tokens. Every dispatch that hit a free
-// provider is counted as tokens_total × $3/M saved. Not marketing spin —
-// honestly labeled as "at Claude Sonnet pricing" in the UI.
-const SAVED_ANCHOR_PER_M = 3.0;
+// What "saved" can honestly mean, and what it cannot.
+//
+// This was a single number anchored at a blended $3/M. A design review pulled
+// it apart, and the objection that killed the single number was not about
+// rates at all: **the estimate assumes perfectly inelastic demand.** It counts
+// every free token as a paid token you avoided, when a large part of this
+// pool's traffic would never have been bought at frontier prices — four-voice
+// consensus panels, retries, audits, probes. That is induced consumption, not
+// displaced spend, and no coefficient fixes it because nothing in the data
+// says which dispatch was which.
+//
+// Two more things were wrong with one number. Input and output are priced ~5x
+// apart ($2 vs $10 on Sonnet 5) and were blended into one rate; and the anchor
+// model was named in a comment but never dated, so nobody could tell when it
+// went stale.
+//
+// So: a RANGE between the two defensible methods, the components that produced
+// it, and a count that needs no counterfactual at all. A weighting by seat
+// capability was considered and rejected — the candidate coefficients moved
+// the total by at most 13.6% and had no calibration behind them, which is more
+// invented error than the uniform weighting it would replace.
+const SAVED_ANCHOR = {
+  model: "Claude Sonnet 5",
+  // Verified against Anthropic's published rates on 2026-09-01. Re-check when
+  // pricing moves; an undated anchor is how an estimate rots without saying so.
+  verified: "2026-09-01",
+  blended_per_m: 3.0,   // the old conservative floor, kept as the low bound
+  input_per_m: 2.0,
+  output_per_m: 10.0,
+};
+const SAVED_ANCHOR_PER_M = SAVED_ANCHOR.blended_per_m;
 const AUDIT_STALE_DAYS = 7;
 // Range picker for the Dispatches / Est. saved tiles — "all" means no lower
 // bound (getStats treats a falsy sinceIso as "since the epoch").
@@ -177,17 +202,11 @@ function computeStats(range = "24h") {
   // ie. those that ran on free-tagged agents. Anything else was going to cost
   // something already.
   const freeIds = new Set(rows.filter((r) => (r.tags || []).includes("free")).map((r) => r.id));
-  const tokensFree = Object.entries(s.by_agent || {})
-    .filter(([id]) => freeIds.has(id))
-    .reduce((sum, [, a]) => sum + totalTokens(a), 0);
-  // Priced, not counted. A cache read bills at ~0.1x a fresh input token and a
-  // cache write at ~1.25x, so charging the anchor rate against raw cached
-  // tokens would inflate this tile by an order of magnitude on any seat that
-  // caches — which is exactly the seat type this number is meant to justify.
-  const billableFree = Object.entries(s.by_agent || {})
-    .filter(([id]) => freeIds.has(id))
-    .reduce((sum, [, a]) => sum + billableTokens(a), 0);
-  const savedUsd = (billableFree / 1_000_000) * SAVED_ANCHOR_PER_M;
+  const freeAgents = Object.entries(s.by_agent || {}).filter(([id]) => freeIds.has(id));
+  const est = savedEstimate(freeAgents, SAVED_ANCHOR);
+  const { dispatches_free: dispatchesFree, tokens_free: tokensFree,
+    tokens_free_billable: billableFree, saved_low: savedLow, saved_high: savedHigh } = est;
+  const savedUsd = savedLow;
   return {
     healthy_count:  healthy,
     locked_count:   locked,
@@ -197,8 +216,12 @@ function computeStats(range = "24h") {
     tokens:         tokensAll,
     tokens_free:    tokensFree,
     tokens_free_billable: billableFree,
+    dispatches_free: dispatchesFree,
     saved_usd:      savedUsd,
+    saved_low:      savedLow,
+    saved_high:     savedHigh,
     saved_anchor:   SAVED_ANCHOR_PER_M,
+    saved_anchor_meta: SAVED_ANCHOR,
     range:          rangeKey,
     // Per-agent aggregates so the UI can surface last_error inline per row.
     by_agent: s.by_agent || {},
@@ -798,7 +821,7 @@ const PAGE = `<!doctype html>
         <option value="all">all</option>
       </select></p>
       <p class="value" id="s-saved">—</p>
-      <p class="foot" id="s-saved-foot">at Claude Sonnet pricing ($3/1M tokens)</p>
+      <p class="foot" id="s-saved-foot">range vs frontier list price — loading…</p>
     </div>
   </section>
 
@@ -1180,9 +1203,18 @@ function renderStats(s) {
   document.getElementById("s-disp").textContent = fmtNum(s.dispatches);
   document.getElementById("s-disp-foot").textContent =
     fmtNum(s.tokens) + " tokens routed";
-  document.getElementById("s-saved").textContent = fmtUsd(s.saved_usd);
+  const anchor = s.saved_anchor_meta || {};
+  // A range, not a point. The two bounds are the same tokens priced two
+  // defensible ways; the spread is the honest width of the answer.
+  document.getElementById("s-saved").textContent =
+    (s.saved_low != null && s.saved_high != null && s.saved_high - s.saved_low > 0.005)
+      ? fmtUsd(s.saved_low) + "–" + fmtUsd(s.saved_high)
+      : fmtUsd(s.saved_usd);
   document.getElementById("s-saved-foot").textContent =
-    "at Claude Sonnet pricing ($" + s.saved_anchor.toFixed(0) + "/1M tokens) · " + fmtNum(s.tokens_free) + " free-tier tokens";
+    "vs " + (anchor.model || "Claude Sonnet") + " list ($" + (anchor.input_per_m ?? 2)
+    + " in / $" + (anchor.output_per_m ?? 10) + " per 1M, rates as of " + (anchor.verified || "—") + ") · "
+    + fmtNum(s.dispatches_free) + " dispatches kept off the frontier account · "
+    + "upper bound assumes every one would otherwise have been paid for";
   // Per-row Calls/Tokens columns are populated from stats.by_agent, which is
   // computed over the same selected range — keep their header text truthful.
   document.getElementById("th-calls").textContent = "Calls " + s.range;
