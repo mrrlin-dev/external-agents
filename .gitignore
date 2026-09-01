@@ -32,3 +32,11 @@ tmp/
 # Consensus-gate working files: review inputs and reports are per-session
 # scaffolding, not deliverables.
 .consensus/
+
+# Gate and handoff trail. Ephemeral, per-session, and full of pool/model ids that
+# rotate on every run — `.claude/artifacts/kiro-trust-fs-write/` reached main with
+# 38 of them before this line existed. Outcome and verdict belong in the PR and in
+# openspec/; the identity of who reviewed does not belong in the repo at all.
+.claude/artifacts/
+.claude/handoffs/
+.claude/worktrees/
