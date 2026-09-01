@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-09-01
+
 ### Added
 
 - **`dispatch-log.jsonl` now keeps 30 days and drops what is older.** Until now it had no retention at all, while the opt-in sidecar carrying far *more* sensitive content was already capped — the asymmetry was backwards (measured on a live install: 2.4 MB / 8442 rows over 41 days, ~22 MB/year, 281 ms to read on every `get_stats` call).
