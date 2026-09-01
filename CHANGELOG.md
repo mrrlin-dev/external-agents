@@ -4,6 +4,30 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-09-01
+
+### Added
+
+- **`dispatch-log.jsonl` now keeps 30 days and drops what is older.** Until now it had no retention at all, while the opt-in sidecar carrying far *more* sensitive content was already capped — the asymmetry was backwards (measured on a live install: 2.4 MB / 8442 rows over 41 days, ~22 MB/year, 281 ms to read on every `get_stats` call).
+
+  Retention is by **age, not size**, and that choice is the substance of the change. Every question anyone asks this file has a time window in it — `get_stats --since`, `doctor --since 24h`, `doctor`'s measured-allowance window — and a byte cap satisfies those only by coincidence of traffic rate: a quiet month hoards a year of dead rows, a busy week silently drops the far end of a window somebody is still asking about. (The 30-day `OBSERVED_LIMIT_TTL_S` in `budget.js` is *not* affected either way: it is checked against `state.json`, which this file never backs.) Neither direction errors, which is what makes bytes the wrong axis. `EXTERNAL_AGENTS_DISPATCH_LOG_RETENTION_DAYS` changes the window; `EXTERNAL_AGENTS_DISPATCH_LOG_MAX_BYTES` remains as a 32 MiB backstop for a burst that outruns the age rule, and it reports on stderr when it trims rather than truncating quietly.
+
+  Trimming is triggered when the oldest row is a fifth of a window overdue rather than the moment it crosses the boundary. Without that hysteresis the steady state is pathological — the oldest row sits exactly on the line, so every append rewrites the whole file.
+
+  Pruning takes a single-holder lock so two servers cannot rewrite the file at once. The lock records its holder's pid and is broken on **liveness alone**, never on age — an age rule is a promise that no prune will ever be slower than the number chosen, and a prune that is slower watches another process declare its lock stale and start pruning the same file. Raising the number makes that rarer and harder to find, not fixed. A lock held far longer than any prune could take (a pid the OS recycled onto an unrelated process) is therefore **reported to the operator with the command to clear it**, and never stolen.
+
+  **On upgrade, the first trim drops whatever you already have beyond 30 days.** Copy the file first if you want the older history.
+
+- **`EXTERNAL_AGENTS_DISPATCH_LOG_FILE`**, the override `failures.jsonl` has had since 0.50.1. Without one this package's own suite had nowhere else to write: fixtures that dispatch and fail on purpose appended to the operator's real log — 357 rows across 119 suite runs on the machine this was found on — and `doctor` carried a `/^test-/` filter to subtract them back out. The suite now redirects itself, and a full run adds zero rows.
+
+- **The registry's `usage_from` and its transport's `--output-format` are now checked against each other**, in both directions and against recorded CLI output. They are two hand-maintained halves of one mechanism and drift between them is silent either way: drop the flag and the seat goes back to reporting no tokens at all (the exact blindness 0.54.0 existed to end), keep it without a spec and the caller's answer becomes a raw JSON envelope instead of the text inside it.
+
+### Changed
+
+- **The 400-character error preview in a dispatch-log row is redacted** with the same machinery the failure sidecar uses, and the file's `0600` mode is re-checked on every write rather than only at creation (`appendFileSync`'s `mode` applies to creation alone, so a file left wider by an earlier version stayed wider). Measured over the 1675 previews already on disk, redaction changes none of them — this is insurance on a channel that *can* carry a key, not a fix for an observed leak.
+
+- **`external-agents: telemetry write failed` is now `dispatch-log write failed`.** Nothing is sent anywhere; the only two `fetch()` calls in the dispatch path are the dispatches themselves, and the old wording made a local disk error read like a failed upload.
+
 ## [0.55.0] - 2026-09-01
 
 ### Added

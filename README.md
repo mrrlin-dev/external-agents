@@ -209,6 +209,18 @@ Everything stays on your disk — the file is `0600` and nothing is transmitted 
 
 **The tool does not write your prompt down** — `prompt_text` is dropped and the prompt positional in the argv becomes a byte count; `--with-prompts` opts back in. That is not the same as a promise that no prompt text is in the file: many CLIs echo the prompt back on stdout, and `raw.stdout` is captured whole, which is the whole point of the sink. Read the file before you paste it somewhere you wouldn't paste the prompt.
 
+#### The other log: `dispatch-log.jsonl`
+
+Beside it sits a second, much smaller file — one ~300-byte row per dispatch, no prompt text, no raw streams, written whether the call succeeded or not. That one is **always on**, and it stays that way: it is where `get_stats`, `doctor` and the observed-limit ledger get their numbers, and every defect this pool has fixed in that area was found by reading it rather than by reading code. There is no switch, because a pool that has quietly stopped measuring itself looks exactly like a healthy one.
+
+What it is not allowed to do is grow forever on your disk:
+
+- **Retention is 30 days**, and it is measured in days rather than bytes on purpose. Every question anyone asks this file is a question about time — `--since 24h`, `doctor`'s measured-allowance window — and a byte cap answers those only by coincidence of how busy you were: a quiet month keeps a year of dead rows, a busy week drops the far end of a window you were still asking about. Nothing errors in either direction, which is what makes bytes the wrong axis. `EXTERNAL_AGENTS_DISPATCH_LOG_RETENTION_DAYS` changes the window; `EXTERNAL_AGENTS_DISPATCH_LOG_MAX_BYTES` is a 32 MiB backstop for a burst that outruns the age rule inside one window, and it says on stderr when it trims.
+
+  Trimming happens when the oldest row is about a fifth of a window overdue, not the moment it crosses the line — so the file settles between 30 and 36 days and gets rewritten every few days instead of on every single dispatch. Only one process trims at a time. An abandoned lock is reclaimed by checking whether its holder is still running — never by how old it looks, because a lock's age cannot distinguish an abandoned prune from a slow one. In the one case liveness gets wrong (a recycled pid) the tool tells you, with the command to clear it, rather than guessing.
+- **`EXTERNAL_AGENTS_DISPATCH_LOG_FILE`** points it somewhere else — the same override `failures.jsonl` has.
+- The file is `0600` (re-checked on every write, not only at creation), and the one free-text field in a row — the 400-character error preview kept on failures — goes through the same redaction as the sidecar.
+
 ### Adding your own model
 
 An internal endpoint, a beta model, anything not bundled:
