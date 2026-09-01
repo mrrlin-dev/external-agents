@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-09-01
+
+### Added
+
+- **A generic `deprecated` field in the `agents.yaml` schema**, not a one-off flag — any entry can now carry an advisory pointing at its replacement. `ollama-gpt-oss-20b` and `ollama-gpt-oss-120b` (the `cli:ollama`/local-daemon path) are marked deprecated in favor of their `-key` siblings below, which need no local daemon or `ollama signin`. No removal date is set — the cli entries stay registered and fully functional until API-key auth is established as the norm.
+
+- **`runAny()` warns once per dispatch** when a deprecated entry is used: `dispatch: WARNING — <id> is deprecated: <text>`, printed to stderr in the same style as the existing files-without-`cwd` warning. It never blocks or changes the transport, and `--json` mode's stdout stays clean — verified live that the warning fires on stderr while stdout still parses as valid JSON.
+
+- **`ollama-gpt-oss-20b-key` / `ollama-gpt-oss-120b-key`** — an API-key auth path for Ollama Cloud models. They hit `ollama.com` directly with a Bearer `OLLAMA_API_KEY`, bypassing the local daemon entirely, kept alongside the existing `cli:ollama` entries rather than replacing them since the key path is the only one that works where the daemon isn't installed. `reasoning_effort` validated empirically against the hosted endpoint (200 for `high`, 400 with an explicit enum error otherwise) rather than assumed from the cli sibling.
+
 ## [0.54.0] - 2026-08-31
 
 ### Added
