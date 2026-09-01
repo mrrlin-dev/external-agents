@@ -203,7 +203,9 @@ function computeStats(range = "24h") {
   // something already.
   const freeIds = new Set(rows.filter((r) => (r.tags || []).includes("free")).map((r) => r.id));
   const freeAgents = Object.entries(s.by_agent || {}).filter(([id]) => freeIds.has(id));
-  const est = savedEstimate(freeAgents, SAVED_ANCHOR);
+  // Tier comes from the registry rows the tile already has in scope.
+  const tierById = new Map(rows.map((r) => [r.id, r.tier]));
+  const est = savedEstimate(freeAgents, SAVED_ANCHOR, (id) => tierById.get(id));
   const { dispatches_free: dispatchesFree, tokens_free: tokensFree,
     tokens_free_billable: billableFree, saved_low: savedLow, saved_high: savedHigh } = est;
   const savedUsd = savedLow;
@@ -220,6 +222,7 @@ function computeStats(range = "24h") {
     saved_usd:      savedUsd,
     saved_low:      savedLow,
     saved_high:     savedHigh,
+    saved_by_tier:  est.by_tier || null,
     saved_anchor:   SAVED_ANCHOR_PER_M,
     saved_anchor_meta: SAVED_ANCHOR,
     range:          rangeKey,
@@ -1210,11 +1213,23 @@ function renderStats(s) {
     (s.saved_low != null && s.saved_high != null && s.saved_high - s.saved_low > 0.005)
       ? fmtUsd(s.saved_low) + "–" + fmtUsd(s.saved_high)
       : fmtUsd(s.saved_usd);
+  // Split by seat capability rather than blended through a coefficient: a
+  // weak seat's token plainly is not worth a strong seat's, and showing the two
+  // lets the reader price that difference themselves instead of having someone
+  // else's guess folded invisibly into one figure.
+  const bt = s.saved_by_tier;
+  const tierLine = bt
+    ? " · strong seats " + fmtUsd(bt.strong.saved_low) + "–" + fmtUsd(bt.strong.saved_high)
+      + " (" + fmtNum(bt.strong.dispatches_free) + " calls), weak seats "
+      + fmtUsd(bt.weak.saved_low) + "–" + fmtUsd(bt.weak.saved_high)
+      + " (" + fmtNum(bt.weak.dispatches_free) + " calls)"
+    : "";
   document.getElementById("s-saved-foot").textContent =
     "vs " + (anchor.model || "Claude Sonnet") + " list ($" + (anchor.input_per_m ?? 2)
     + " in / $" + (anchor.output_per_m ?? 10) + " per 1M, rates as of " + (anchor.verified || "—") + ") · "
-    + fmtNum(s.dispatches_free) + " dispatches kept off the frontier account · "
-    + "upper bound assumes every one would otherwise have been paid for";
+    + fmtNum(s.dispatches_free) + " dispatches kept off the frontier account"
+    + tierLine
+    + " · upper bound assumes every one would otherwise have been paid for";
   // Per-row Calls/Tokens columns are populated from stats.by_agent, which is
   // computed over the same selected range — keep their header text truthful.
   document.getElementById("th-calls").textContent = "Calls " + s.range;
