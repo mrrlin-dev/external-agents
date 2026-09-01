@@ -7,7 +7,7 @@ import path from "node:path";
 import { loadRegistry, LOCAL_PATH, CANONICAL_BASES, nextProviderSlot, withLocalOverlayLock } from "./lib/registry.js";
 import { readState, writeState, probeInstalled, deriveDisplayState, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown } from "./lib/state.js";
 import { verifyCredential, getStats, auditCliEntry, classifyVerifyResult, shouldPersistOutcome } from "./lib/dispatch.js";
-import { bootEnv, refreshEnv } from "./lib/credentials.js";
+import { bootEnv, refreshEnv, displayPath } from "./lib/credentials.js";
 // Load keys.env + legacy provider stores (Kilo auth, llm-keys) into process.env
 // before any probe/dispatch runs. Without this, /api/audit sees a blank env
 // and reports all API-key entries as needs_auth.
@@ -1793,7 +1793,7 @@ const server = http.createServer(async (req, res) => {
           return json(res, 200, {
             ok: true,
             env_name,
-            persisted_to: KEYS_FILE,
+            persisted_to: displayPath(KEYS_FILE),
             reprobed: affected.map((a) => a.id),
             enabled_ids: enabledIds,
             verified: verifyResults,
@@ -1803,7 +1803,7 @@ const server = http.createServer(async (req, res) => {
           return json(res, 200, {
             ok: true,
             env_name,
-            persisted_to: KEYS_FILE,
+            persisted_to: displayPath(KEYS_FILE),
             reprobed: affected.map((a) => a.id),
             verified: [],
             warning: `credential saved but post-save verification failed: ${verifyErr.message}`,
