@@ -1253,7 +1253,9 @@ switch (helpRequested ? "--help" : subcmd) {
   pick [--tier T | --tier-prefer T] [--n N] [--min-distinct-providers M] [--exclude id,id] [--exclude-providers p,p] [--tags a,b] [--transport generate_new|edit_exists|read_only] [--effort <level>]
        [--prompt-bytes N | --prompt-tokens N]
        (--prompt-bytes/--prompt-tokens = seat only agents whose declared token_limits can hold a
-        prompt that size; entries declaring no limits are never refused. Bytes are counted at 4:1.)
+        prompt that size; entries declaring no limits are never refused. Bytes are counted at
+        3.5:1 — the 5th percentile of measured bytes/token, so the estimate is a ceiling
+        rather than a median. Pass --prompt-tokens if you know the real count.)
        (--exclude/--exclude-providers cascade to API-key clones: excluding one id drops every
         entry serving the same model; providers match by family, so \`google\` covers google3..8)
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
