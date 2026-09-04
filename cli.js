@@ -808,7 +808,17 @@ function cmdInit(flags) {
 // `npm i -g @latest`, and what actually matters day-to-day is knowing
 // whether YOUR account still has access to each model.
 async function cmdAudit(flags) {
-  const providerFilter = flags.provider ? String(flags.provider) : null;
+  // Distinguish "flag absent" from "flag present and empty". Reading the flag for
+  // truthiness made `--provider ""` collapse to "no filter at all" and audit the
+  // ENTIRE registry — a real round-trip per enabled agent, prepaid keys included.
+  // An empty provider cannot express intent, so it is a usage error, never a
+  // licence to widen: the one thing an operator who typed --provider did not ask
+  // for is everything.
+  const providerRaw = flags.provider;
+  if (providerRaw !== undefined && providerRaw !== null && String(providerRaw).trim() === "") {
+    die("audit: --provider needs a provider name (got an empty value)", 2);
+  }
+  const providerFilter = providerRaw != null ? String(providerRaw) : null;
   const asJson = flags.json === true;
   const includeDisabled = flags["include-disabled"] === true;
   // Before entry selection, not after. Housekeeping must not depend on the
@@ -828,8 +838,39 @@ async function cmdAudit(flags) {
   // are deciding whether to turn something back on and want to know if it
   // still works first.
   const skippedDisabled = [];
+  // A bare family name reaches its numbered clones; a numbered id does not widen.
+  //
+  // The numbered API-key clones carry a numbered provider (`groq2`, `google3..8`)
+  // while every remedy that prints an audit command builds it from the family —
+  // doctor.js emits `audit --provider groq` for a finding whose seats are half
+  // `groq2`. A raw string compare made that prescribed remedy silently miss them:
+  // it probed 3 of 6 groq seats, reported `healthy:3`, and left a clone carrying a
+  // measured ceiling seven times too low for the rest of its 30-day TTL.
+  //
+  // Only that direction expands, though. Unlike `--exclude-providers`, which is
+  // free, audit spends a real round-trip per entry — on prepaid keys included — so
+  // `--provider groq2` must not quietly bill the operator for the siblings they
+  // did not name. A numbered id is a precise request; honour it exactly.
+  //
+  // "Numbered" is a trailing digit run, which is exactly what providerFamily
+  // strips. A provider family whose own name ended in a digit would therefore be
+  // read as a clone and not expand — but that same name already collapses under
+  // providerFamily everywhere else (--exclude-providers, agentVoice, diversity),
+  // so it would be broken pool-wide long before it reached here. The registry
+  // ships no such family; if one is ever added, providerFamily is the place to
+  // fix it, not this caller.
+  const isNumberedProvider = (p) => /\d+$/.test(String(p || ""));
+  const matchesFilter = (a) => (
+    isNumberedProvider(providerFilter)
+      ? a.provider === providerFilter
+      : providerFamily(a.provider) === providerFamily(providerFilter)
+  );
   const entries = REGISTRY.agents.filter((a) => {
-    if (providerFilter && a.provider !== providerFilter) return false;
+    // Guard on whether a filter was ASKED FOR, never on the truthiness of what it
+    // reduces to: providerFamily("123") is "", and treating that as "no filter"
+    // sent audit at the entire registry — the widest possible reading of the
+    // narrowest possible request. A filter that matches nothing is exit 3.
+    if (providerFilter != null && !matchesFilter(a)) return false;
     if (!(a.transports?.generate_new?.url || a.transports?.edit_exists)) return false;
     if (!includeDisabled && !isAgentEnabled(a, auditState)) {
       skippedDisabled.push(a.id);
@@ -1254,6 +1295,7 @@ switch (helpRequested ? "--help" : subcmd) {
         so it is safe to run from cron and only shouts when it matters.)
   audit [--provider P] [--include-disabled] [--json]
                                    # force API round-trip for every ENABLED registry entry (or just PROVIDER); writes state.json outcomes (healthy / needs_auth / model_unavailable / rate_limited)
+                                   # --provider: a family name covers its numbered key clones ('groq' covers groq2); a numbered id ('groq2') stays exact, since each probe is a real round-trip
                                    # disabled entries are skipped — they cannot be dispatched, and for prepaid providers auditing them spends real money; --include-disabled overrides
   add-model --id ID --provider P --url URL --model M --env ENV_VAR [--tier weak|strong] [--tags a,b]
                                    # add a locally-authored agent to ~/.local/state/external-agents/agents.local.yaml (merged over the bundled registry)
