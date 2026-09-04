@@ -4,6 +4,39 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-09-04
+
+Three defects, all found by reading the pool's own logs rather than its code, and all of the same family: a number that meant one thing was recorded as though it meant another, and nothing failed to point at it.
+
+### Fixed
+
+- **An output limit was being recorded as the input ceiling.** Groq writes three limits in one prose shape, and only two of them bound a prompt: TPM (combined) and ITPM (input) do, while **OTPM bounds `max_tokens`**. `parseStatedLimit` matched all three, so a recorded 429 — *"on output tokens per minute (OTPM): Limit 1000, Requested 1434 … reduce max_tokens"* — wrote `tpm = 1000` onto two live seats whose real ceiling was 7000–8000. Because a stated limit deliberately outranks a header, that wrong number also beat the correct `8000` the provider sent in the very same response.
+
+  Nothing errored. `pick` simply stopped seating anything over ~1000 tokens on seats that could hold seven times that, and would have gone on doing so for the record's 30-day life. The axis belongs to the *clause*, not the body: each limit now takes the axis of the nearest marker in its own clause, and a clause with no marker defers to the wider text — without that last part a line break falling between a marker and its number launders an output ceiling into an input one, which is the original defect with different whitespace.
+
+- **The `doctor`'s own prescribed remedy could not reach half its target.** `doctor` prints `audit --provider <family>`, while `audit` compared the raw provider id — and numbered API-key clones carry a numbered provider. Measured: `audit --provider groq` probed **3 of 6** enabled groq seats, reported `healthy:3`, and left the poisoned clone untouched for another 30 days. A remedy that reports success while doing half the job is worse than one that fails.
+
+  A family name now reaches its clones; a numbered id stays exact, because unlike `--exclude-providers` every probe here is a real round-trip on a possibly prepaid key. An empty `--provider` is a usage error rather than a licence to audit the entire registry, which is what reading the flag for truthiness had made it.
+
+- **A combined ceiling kept overwriting a more accurate input one.** The header `x-ratelimit-limit-tokens` describes the *combined* bucket; what bounds a prompt is an input budget stated in no header and only ever in error prose. With one axis-less number in the record, any later headers-only response — and a successful audit probe is exactly that — overwrote a hard-won 7000 with 8000, and three prompts were seated and rejected within the hour.
+
+  Ceilings are now kept per axis (`itpm`, `tpm`, `otpm`), each with its own timestamp, and the state layer reconciles them one axis at a time — a patch that learned only the combined bucket used to replace the whole record and take the input ceiling with it. The prompt ceiling is `min(itpm, tpm - otpm)`; the subtraction is not a guess, since for comparable prompts the provider counts noticeably more against the combined axis than the input one, which only makes sense if the combined check reserves the reply.
+
+  A record with no axis information is discarded rather than guessed at. Its lone number may be a combined ceiling, an input one, or an output allowance misread as either — two live seats carried exactly that — and nothing can tell them apart after the fact.
+
+- **A health probe could outlive the process that started it.** The 90-second kill lived in the parent, so when the parent died first the timer died with it and the probe was reparented to PID 1 with nowhere to go. Three were found on one machine, the oldest 5h20m, two still holding open sockets to a provider's gateway — the cause of recurring firewall alerts for a provider the operator believed the pool did not even use.
+
+  Probes now run in their own process group and the whole group is killed from the timeout and from every exit path the process can still observe. Those handlers are installed with the first live probe and released with the last: a library may borrow the process's signals for the length of an operation, but it may not keep them.
+
+### Changed
+
+- **A ceiling can now be corrected upward by a success.** The input axis is only ever taught by rejection, which makes it a one-way ratchet — once the gate is conservative enough the rejections stop, and with them the only evidence that could raise it again. Expiring it on a timer would buy the correction by *scheduling* a rejection, and a rejection is recorded as an exhaustion, so every lapse would also cool the seat down. A prompt the provider accepted is the cheaper proof and is already in hand.
+
+  HTTP only, deliberately: on a CLI transport the field named "input" is not the prompt — one measured run reported 10 against 37,789 tokens actually processed.
+
+- `effectiveTokenCeiling` reads the declared `itpm` and `otpm` that the registry schema has carried all along and that no code had ever read.
+
+
 ## [0.59.0] - 2026-09-01
 
 ### Added
