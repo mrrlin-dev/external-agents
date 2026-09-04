@@ -828,8 +828,17 @@ async function cmdAudit(flags) {
   // are deciding whether to turn something back on and want to know if it
   // still works first.
   const skippedDisabled = [];
+  // Match the provider FAMILY, not the raw id. The numbered API-key clones carry
+  // a numbered provider (`groq2`, `google3..8`) while every remedy that prints an
+  // audit command builds it from the family — doctor.js emits
+  // `audit --provider groq` for a finding whose seats are half `groq2`. A raw
+  // string compare made that prescribed remedy silently miss them: it probed 3 of
+  // 6 groq seats, reported `healthy:3`, and left a clone carrying a measured
+  // ceiling seven times too low for the rest of its 30-day TTL. `--exclude-providers`
+  // already matches by family; audit was the odd one out.
+  const filterFamily = providerFilter ? providerFamily(providerFilter) : null;
   const entries = REGISTRY.agents.filter((a) => {
-    if (providerFilter && a.provider !== providerFilter) return false;
+    if (filterFamily && providerFamily(a.provider) !== filterFamily) return false;
     if (!(a.transports?.generate_new?.url || a.transports?.edit_exists)) return false;
     if (!includeDisabled && !isAgentEnabled(a, auditState)) {
       skippedDisabled.push(a.id);
@@ -1254,6 +1263,7 @@ switch (helpRequested ? "--help" : subcmd) {
         so it is safe to run from cron and only shouts when it matters.)
   audit [--provider P] [--include-disabled] [--json]
                                    # force API round-trip for every ENABLED registry entry (or just PROVIDER); writes state.json outcomes (healthy / needs_auth / model_unavailable / rate_limited)
+                                   # --provider matches by FAMILY, as --exclude-providers does: 'groq' covers groq2, 'google' covers google3..8
                                    # disabled entries are skipped — they cannot be dispatched, and for prepaid providers auditing them spends real money; --include-disabled overrides
   add-model --id ID --provider P --url URL --model M --env ENV_VAR [--tier weak|strong] [--tags a,b]
                                    # add a locally-authored agent to ~/.local/state/external-agents/agents.local.yaml (merged over the bundled registry)
