@@ -808,7 +808,17 @@ function cmdInit(flags) {
 // `npm i -g @latest`, and what actually matters day-to-day is knowing
 // whether YOUR account still has access to each model.
 async function cmdAudit(flags) {
-  const providerFilter = flags.provider ? String(flags.provider) : null;
+  // Distinguish "flag absent" from "flag present and empty". Reading the flag for
+  // truthiness made `--provider ""` collapse to "no filter at all" and audit the
+  // ENTIRE registry — a real round-trip per enabled agent, prepaid keys included.
+  // An empty provider cannot express intent, so it is a usage error, never a
+  // licence to widen: the one thing an operator who typed --provider did not ask
+  // for is everything.
+  const providerRaw = flags.provider;
+  if (providerRaw !== undefined && providerRaw !== null && String(providerRaw).trim() === "") {
+    die("audit: --provider needs a provider name (got an empty value)", 2);
+  }
+  const providerFilter = providerRaw != null ? String(providerRaw) : null;
   const asJson = flags.json === true;
   const includeDisabled = flags["include-disabled"] === true;
   // Before entry selection, not after. Housekeeping must not depend on the
@@ -841,6 +851,14 @@ async function cmdAudit(flags) {
   // free, audit spends a real round-trip per entry — on prepaid keys included — so
   // `--provider groq2` must not quietly bill the operator for the siblings they
   // did not name. A numbered id is a precise request; honour it exactly.
+  //
+  // "Numbered" is a trailing digit run, which is exactly what providerFamily
+  // strips. A provider family whose own name ended in a digit would therefore be
+  // read as a clone and not expand — but that same name already collapses under
+  // providerFamily everywhere else (--exclude-providers, agentVoice, diversity),
+  // so it would be broken pool-wide long before it reached here. The registry
+  // ships no such family; if one is ever added, providerFamily is the place to
+  // fix it, not this caller.
   const isNumberedProvider = (p) => /\d+$/.test(String(p || ""));
   const matchesFilter = (a) => (
     isNumberedProvider(providerFilter)
