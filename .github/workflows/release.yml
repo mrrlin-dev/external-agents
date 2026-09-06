@@ -47,7 +47,12 @@ jobs:
           fi
           echo "dispatched from $EXPECTED"
 
+      # `ref` is spelled out rather than left to default. The default already
+      # resolves to this same commit, but a release is the wrong place to make
+      # a reader take that on trust, and both jobs must land on one commit.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -126,7 +131,12 @@ jobs:
             echo "::error::$NAME@$VERSION is already on npm — bump the version in package.json first"
             exit 1
           fi
-          if [ "$RC" -ne 0 ] && ! grep -q "E404" "$RUNNER_TEMP/npm-view.err"; then
+          # Match npm's own `code E404` line, not a bare E404 anywhere in the
+          # text: a proxy or gateway error that happens to mention the string
+          # must not be read as "this version does not exist". The `code `
+          # prefix covers both npm's `npm error code E404` and the older
+          # `npm ERR! code E404`.
+          if [ "$RC" -ne 0 ] && ! grep -q "code E404" "$RUNNER_TEMP/npm-view.err"; then
             echo "::error::could not determine whether $NAME@$VERSION is published (npm view exit $RC, no E404) — refusing to publish blind"
             cat "$RUNNER_TEMP/npm-view.err" >&2
             exit 1
@@ -186,7 +196,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Same commit the publish job built and shipped, named explicitly so the
+      # tag cannot drift onto a later one.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Tag the published commit
         env:
