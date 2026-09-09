@@ -4,6 +4,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-09-09
+
+### Fixed
+
+- **`agy`'s own print-mode timeout was firing before the harness's.** `agy --print` defaults to a 5-minute internal watchdog; the harness's own `EXTERNAL_AGENTS_TIMEOUT_MS` default is 500s (8m20s), comfortably above it, so on a long turn `agy` gave up first and returned empty output with no distinguishing error. Raised to 8m via `--print-timeout`, 20s under the harness ceiling so the two timeouts never race.
+
+### Changed
+
+- **Two openrouter free-tier slugs retired by the provider.** `minimax/minimax-m3:free` and `z-ai/glm-5.2:free` now 404 on every dispatch — OpenRouter names the paid replacement slug in the error body, and both are gone from `/api/v1/models`' free listing. Disabled (`enabled: false`, not deleted) and replaced with two live, individually-verified entries in the same tier/tags: `openrouter-nex-n2.5-pro-free` and `openrouter-nemotron-nano-omni-free`. Neither has a track record against a real review workload yet.
+
 ## [0.60.0] - 2026-09-04
 
 Three defects, all found by reading the pool's own logs rather than its code, and all of the same family: a number that meant one thing was recorded as though it meant another, and nothing failed to point at it.
