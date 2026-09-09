@@ -22,7 +22,7 @@ import { loadRegistry, LOCAL_PATH, withLocalOverlayLock } from "./lib/registry.j
 import yaml from "js-yaml";
 import { readState, writeState, probeInstalled, resetCooldownsForEnvVar, enableAgentsAwaitingCredential, mergeAuditState, auditCooldown, deriveDisplayState } from "./lib/state.js";
 import { runAny, resolveEscalation, classifyDispatchFailure, getStats, verifyCredential, auditCliEntry, getTransportConfig, selectTransport, probeReadOnlyNonWriting, classifyVerifyResult, shouldPersistOutcome, repoProvenance, sweepDispatchTemp } from "./lib/dispatch.js";
-import { pickAgents, providerFamily, isAgentEnabled, explainEmptyPick, formatEmptyPick } from "./lib/pick.js";
+import { pickAgents, providerFamily, isAgentEnabled, explainEmptyPick, formatEmptyPick, inheritedTokenLimits } from "./lib/pick.js";
 import { nextStateAfterOutcome, sharedQuotaBucketIds, withObservations, floorExhaustionReset } from "./lib/outcome.js";
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { persistCredential, bootEnv, displayPath, KEYS_FILE } from "./lib/credentials.js";
@@ -58,7 +58,7 @@ const REGISTRY = loadRegistry(REGISTRY_PATH);
 // taking parser turns `dispatch <id> --json "prompt"` into {json:"prompt"} and
 // eats the positional — the prompt vanishes ("missing prompt"). Same latent
 // trap for --pro. Everything else stays a value flag (--n 3, --tier strong, …).
-const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force", "stream", "enabled", "disabled", "include-disabled"]);
+const BOOLEAN_FLAGS = new Set(["json", "pro", "no-open", "force", "stream", "enabled", "disabled", "include-disabled", "allow-oversized-prompt"]);
 const ARRAY_FLAGS = new Set(["file"]);
 const VALID_EFFORT_LEVELS = new Set(["none", "minimal", "default", "low", "medium", "high", "xhigh", "max"]);
 function parseArgs(argv) {
@@ -186,7 +186,7 @@ function cmdPick(flags) {
 async function cmdDispatch(args, flags) {
   const [agentId, ...promptParts] = args;
   const prompt = promptParts.join(" ");
-  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--stream] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--file path[:lines]] \"<prompt>\"", 2);
+  if (!agentId) die("usage: cli.js dispatch <agent-id> [--pro] [--json] [--stream] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--file path[:lines]] [--allow-oversized-prompt] \"<prompt>\"", 2);
   if (!prompt) die("dispatch: missing prompt", 2);
 
   // --file path[:lines] — repeatable. "src/foo.ts:10-50" → {path, lines}.
@@ -300,7 +300,26 @@ async function cmdDispatch(args, flags) {
         process.stderr.write(message.endsWith("\n") ? message : `${message}\n`);
       }
     : undefined;
-  const result = await runAny(entry, prompt, { transport, cwd: flags.cwd, files, effort, progress });
+  let result;
+  try {
+    result = await runAny(entry, prompt, {
+      transport,
+      cwd: flags.cwd,
+      files,
+      effort,
+      progress,
+      inheritedTokenLimits: inheritedTokenLimits(REGISTRY, entry),
+      allowOversizedPrompt: Boolean(flags["allow-oversized-prompt"]),
+    });
+  } catch (e) {
+    if (!e.preDispatchRefusal) throw e;
+    // Already recorded inside runAny (the same choke point selectTransport's
+    // refusal above uses) — this catch only turns it into the same clean
+    // exit(4)/JSON shape as every other pre-dispatch refusal here, instead of
+    // an uncaught stack trace.
+    console.error(JSON.stringify({ outcome: "oversized_prompt_refused", requested: entry.id, reason: e.message }));
+    process.exit(4);
+  }
   const now = Math.floor(Date.now() / 1000);
 
   // Centralized outcome→state via nextStateAfterOutcome (lib/outcome.js): tracks
@@ -1257,9 +1276,13 @@ switch (helpRequested ? "--help" : subcmd) {
        (--exclude/--exclude-providers cascade to API-key clones: excluding one id drops every
         entry serving the same model; providers match by family, so \`google\` covers google3..8)
        (--tier = strict single tier; --tier-prefer = prefer that tier, backfill the other to fill N slots, provider-diverse)
-  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--require-base <ref>] [--file path[:lines]] "<prompt>"
+  dispatch <agent-id> [--pro] [--json] [--transport generate_new|edit_exists|read_only] [--effort <level>] [--cwd <dir>] [--require-base <ref>] [--file path[:lines]] [--allow-oversized-prompt] "<prompt>"
        (exit 4 = refused before anything was spawned: unknown/disabled agent, no escalation candidate,
-        --require-base mismatch, or a transport the entry does not declare)
+        --require-base mismatch, a transport the entry does not declare, or a prompt bigger than the
+        agent's known token-per-minute ceiling)
+       (--allow-oversized-prompt = send it anyway. Without this, dispatch refuses a prompt pick would
+        have refused to SEAT — the same declared/observed ceiling \`pick --prompt-bytes\` checks, now also
+        checked here because a direct dispatch-by-id skips pick entirely.)
        (--json = one structured {text,outcome,tokens,…} object on stdout; default = text on stdout + trailer on stderr)
        (--effort = reasoning depth. Use \`high\` for planning, design and review;
         omit it for mechanical edits and lookups — the provider's own default applies.)
