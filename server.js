@@ -15,7 +15,7 @@ import { nextStateAfterOutcome, sharedQuotaBucketIds, withObservations, floorExh
 import { resolveExhaustionResetAt } from "./lib/quota-reset.js";
 import { runAny, classifyDispatchFailure, resolveEscalation, getStats } from "./lib/dispatch.js";
 import { recordFailure } from "./lib/failure-log.js";
-import { pickAgents, isAgentEnabled } from "./lib/pick.js";
+import { pickAgents, isAgentEnabled, inheritedTokenLimits } from "./lib/pick.js";
 
 // Resolve agents.yaml relative to THIS module, never the process cwd. As an
 // MCP server, external-agents-mcp is spawned by the client (Codex/Claude) with
@@ -162,7 +162,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           "you need to constrain or highlight context. Paths resolve relative to cwd. " +
           "IMPORTANT: when using files, ALWAYS pass cwd (the repo root) — it serves as the " +
           "containment basedir for path resolution and security. Without cwd, paths resolve against " +
-          "the MCP server process cwd, which is likely wrong.",
+          "the MCP server process cwd, which is likely wrong." +
+          "\n\nBy default this refuses a prompt larger than agent_id's known token-per-minute ceiling " +
+          "(the same declared/observed limit pick_agents checks before seating one) instead of sending " +
+          "it and getting a live HTTP 413. Pick a different (or larger-ceiling) agent_id, or set " +
+          "allow_oversized_prompt=true to send it anyway.",
         inputSchema: {
           type: "object",
           properties: {
@@ -170,6 +174,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             prompt: { type: "string" },
             transport: { type: "string", enum: ["generate_new", "edit_exists", "read_only"] },
             escalate_to_pro: { type: "boolean" },
+            allow_oversized_prompt: { type: "boolean" },
             cwd: { type: "string" },
             files: {
               type: "array",
@@ -329,7 +334,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "dispatch") {
-    const { agent_id, prompt, transport, escalate_to_pro, cwd, files } = request.params.arguments;
+    const { agent_id, prompt, transport, escalate_to_pro, cwd, files, allow_oversized_prompt } = request.params.arguments;
     if (!agent_id || !prompt) {
       throw new Error("dispatch: missing agent_id or prompt");
     }
@@ -377,7 +382,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       [entry.id]: { ...(state[entry.id] || {}), last_used_at: Math.floor(Date.now() / 1000) },
     });
 
-    const result = await runAny(entry, prompt, { transport, cwd, files });
+    const result = await runAny(entry, prompt, {
+      transport,
+      cwd,
+      files,
+      inheritedTokenLimits: inheritedTokenLimits(REGISTRY, entry),
+      allowOversizedPrompt: Boolean(allow_oversized_prompt),
+    });
     const now = Math.floor(Date.now() / 1000);
 
     // Shared outcome→state (lib/outcome.js) — escalating cooldown on repeated
