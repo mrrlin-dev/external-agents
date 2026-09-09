@@ -79,6 +79,7 @@ jobs:
         id: version
         env:
           EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ steps.mode.outputs.dry_run }}
         run: |
           VERSION="$(node -p 'require("./package.json").version')"
           NAME="$(node -p 'require("./package.json").name')"
@@ -97,11 +98,21 @@ jobs:
           RC=$?
           set -e
           if [ "$RC" -eq 0 ] && [ -n "$PUBLISHED" ]; then
-            # A dispatch is a deliberate act of releasing this exact version —
-            # if it's already out, the operator made a mistake and should hear
-            # about it. A push is not a decision to ship, just a signal to
-            # check one: already-published there is the normal, idempotent
-            # no-op case, not a failure.
+            # A dry run explicitly promises not to publish, so "already on npm"
+            # must never fail it — main sits on an already-published version
+            # between every release, which is the common case, not a mistake.
+            # Run everything else (gates, pack) so a dry run stays useful as a
+            # general pipeline health-check, not only a pre-bump preflight.
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "$NAME@$VERSION is already on npm — dry run continues anyway (nothing will be published)"
+              echo "should_publish=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # A REAL dispatch is a deliberate act of releasing this exact
+            # version — if it's already out, the operator made a mistake and
+            # should hear about it. A push is not a decision to ship, just a
+            # signal to check one: already-published there is the normal,
+            # idempotent no-op case, not a failure.
             if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
               echo "::error::$NAME@$VERSION is already on npm — bump the version in package.json first"
               exit 1
