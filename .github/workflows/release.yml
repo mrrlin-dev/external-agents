@@ -1,0 +1,263 @@
+name: Release
+
+# Publishes automatically once a push to main carries a package.json version
+# that isn't on npm yet — so shipping no longer depends on somebody
+# remembering to run `npm publish` (or dispatch this workflow) by hand.
+# workflow_dispatch stays as a manual escape hatch: retrying a release whose
+# tag push failed, or a dry run to see the tarball and exercise the guards
+# without publishing.
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run every check and pack the tarball, but do not publish"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Decides whether this run should publish at all, before any gate or
+  # install runs. A push that touches package.json without bumping the
+  # version (or a merge race that lands after another run already shipped
+  # it) is the common case, not an error — it must finish green without
+  # spending CI time on it.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.version.outputs.name }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_publish: ${{ steps.version.outputs.should_publish }}
+      dry_run: ${{ steps.mode.outputs.dry_run }}
+    steps:
+      # `workflow_dispatch` can be aimed at ANY ref (`gh workflow run --ref …`),
+      # and nothing else here would catch it: a feature branch carrying a
+      # bumped package.json would publish that branch's code as `latest`. A
+      # push trigger is already scoped to `branches: [main]`, so this is a
+      # no-op guard there and the real guard for a dispatch. A failing step,
+      # not a job-level `if:`, on purpose — a skipped job reports green, the
+      # wrong colour for a guard that just stopped a release.
+      - name: Refuse anything but the default branch
+        run: |
+          EXPECTED="refs/heads/${{ github.event.repository.default_branch }}"
+          if [ "${{ github.ref }}" != "$EXPECTED" ]; then
+            echo "::error::release must run from $EXPECTED, got ${{ github.ref }} — nothing was published"
+            exit 1
+          fi
+          echo "running from $EXPECTED"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      # One place decides what dry-run means, and it decides it in shell rather
+      # than in an `if:` expression. Whether the `inputs` context hands us a
+      # real boolean or the string "false" — or nothing at all, on a push —
+      # `${{ inputs.dry_run }}` renders to text here, so this normalises every
+      # reading to one string that later conditions compare against.
+      - name: Resolve run mode
+        id: mode
+        run: |
+          case "${{ inputs.dry_run }}" in
+            true|True|TRUE|yes|1) DRY=true ;;
+            *) DRY=false ;;
+          esac
+          echo "dry_run=$DRY" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY"
+
+      - name: Resolve version and check publish status
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          VERSION="$(node -p 'require("./package.json").version')"
+          NAME="$(node -p 'require("./package.json").name')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Checking $NAME@$VERSION"
+
+          # `npm view pkg@version version` prints the version and exits 0 when
+          # it is published, and exits non-zero with `code E404` when it is
+          # not. Every OTHER non-zero exit — registry outage, auth, 5xx — must
+          # fail the job rather than be read as "not published": swallowing it
+          # with `|| true` would turn any registry hiccup into a green light.
+          set +e
+          PUBLISHED="$(npm view "$NAME@$VERSION" version 2>"$RUNNER_TEMP/npm-view.err")"
+          RC=$?
+          set -e
+          if [ "$RC" -eq 0 ] && [ -n "$PUBLISHED" ]; then
+            # A dispatch is a deliberate act of releasing this exact version —
+            # if it's already out, the operator made a mistake and should hear
+            # about it. A push is not a decision to ship, just a signal to
+            # check one: already-published there is the normal, idempotent
+            # no-op case, not a failure.
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "::error::$NAME@$VERSION is already on npm — bump the version in package.json first"
+              exit 1
+            fi
+            echo "$NAME@$VERSION is already on npm — nothing to do"
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Match npm's own `code E404` line, not a bare E404 anywhere in the
+          # text: a proxy or gateway error that happens to mention the string
+          # must not be read as "this version does not exist". The `code `
+          # prefix covers both npm's `npm error code E404` and the older
+          # `npm ERR! code E404`.
+          if [ "$RC" -ne 0 ] && ! grep -q "code E404" "$RUNNER_TEMP/npm-view.err"; then
+            echo "::error::could not determine whether $NAME@$VERSION is published (npm view exit $RC, no E404) — refusing to publish blind"
+            cat "$RUNNER_TEMP/npm-view.err" >&2
+            exit 1
+          fi
+          echo "$NAME@$VERSION is not on npm yet"
+          echo "should_publish=true" >> "$GITHUB_OUTPUT"
+
+  # The same gates CI runs on every push, shared from one file so this can
+  # never silently run fewer checks than ci.yml does. Skipped along with
+  # `publish` when `check` found nothing to ship.
+  gates:
+    needs: check
+    if: needs.check.outputs.should_publish == 'true'
+    uses: ./.github/workflows/_gates.yml
+    with:
+      node-version: "22.x"
+
+  publish:
+    needs: [check, gates]
+    if: needs.check.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    # id-token is what makes this work without an NPM_TOKEN: npm exchanges this
+    # short-lived OIDC token for publish rights via trusted publishing, and
+    # stamps provenance in the same step. This job never writes to the repo —
+    # the tag is a separate job precisely so publishing holds no write scope.
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
+    steps:
+      # `ref` is spelled out rather than left to default, so this job and
+      # `tag` are guaranteed to land on the exact commit `check` resolved the
+      # version from, not whatever the ref happens to point to when this job
+      # starts.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing (OIDC) needs npm >= 11.5.1 and setup-node still
+      # ships npm 10.x, so this upgrade is required. Pinned rather than
+      # `@latest`: an unpinned install puts an unreviewed dependency in the
+      # path of every release. Bump it deliberately. The floor check below is
+      # a tripwire for a bad pin, not the thing that chooses the version.
+      - name: Install the npm that can do trusted publishing
+        run: |
+          npm install -g npm@11.19.1
+          NPM_V="$(npm -v)"
+          echo "npm $NPM_V"
+          NPM_V="$NPM_V" node -e '
+            const need = [11, 5, 1];
+            // Drop any prerelease/build suffix and pad, so a short or
+            // prerelease version cannot slip through as NaN.
+            const got = process.env.NPM_V.trim().split("-")[0].split("+")[0]
+              .split(".").map(Number);
+            while (got.length < 3) got.push(0);
+            if (got.some(Number.isNaN)) {
+              console.error(`cannot parse npm version ${process.env.NPM_V}`);
+              process.exit(1);
+            }
+            for (let i = 0; i < 3; i++) {
+              if (got[i] > need[i]) break;
+              if (got[i] < need[i]) {
+                console.error(`npm ${process.env.NPM_V} is below the 11.5.1 that trusted publishing requires`);
+                process.exit(1);
+              }
+            }
+          '
+
+      # `npm ci` is not usable here: package-lock.json is gitignored in this
+      # repo (.gitignore:3), so there is no lockfile to install from. ci.yml
+      # uses `npm install` for the same reason.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      # Packs exactly what `files` in package.json selects, so an accidental
+      # inclusion is visible in the log before it is public and permanent.
+      - name: Show tarball contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        id: publish
+        if: ${{ needs.check.outputs.dry_run != 'true' }}
+        run: |
+          # Second line of defence on an irreversible action: re-read the
+          # normalised flag inside the step, so a mistake in the `if:` above
+          # cannot by itself publish a dry run.
+          if [ "${{ needs.check.outputs.dry_run }}" = "true" ]; then
+            echo "::error::dry run reached the publish step — refusing"
+            exit 1
+          fi
+          npm publish --access public --provenance
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ needs.check.outputs.name }}@${{ needs.check.outputs.version }}"
+            if [ "${{ needs.check.outputs.dry_run }}" = "true" ]; then
+              echo "Dry run — checks passed, nothing published."
+            else
+              echo "Published to npm with provenance. Tagging \`${{ needs.check.outputs.tag }}\` next."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Separate job so `contents: write` is held only by the step that needs it,
+  # and never by the one that publishes. Runs only after a real publish.
+  tag:
+    needs: [check, publish]
+    if: needs.publish.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Same commit `check` resolved the version from and `publish` shipped,
+      # named explicitly so the tag cannot drift onto a later one.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Tag the published commit
+        env:
+          TAG: ${{ needs.check.outputs.tag }}
+          NAME: ${{ needs.check.outputs.name }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG already exists on origin; leaving it alone"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The publish already succeeded by this point. Say so loudly if the
+          # tag is what fails, and hand over the exact commands, so nobody
+          # re-dispatches a release that already shipped.
+          if ! git tag -a "$TAG" -m "$TAG" || ! git push origin "$TAG"; then
+            echo "::error::$NAME@$VERSION WAS PUBLISHED, but tagging failed. Do NOT re-run this workflow. Tag it by hand: git tag -a $TAG -m $TAG ${{ github.sha }} && git push origin $TAG"
+            exit 1
+          fi
+          echo "tagged $TAG at ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
