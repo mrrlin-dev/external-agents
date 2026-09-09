@@ -1040,11 +1040,11 @@ agents:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --model gemini-3.6-flash-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
       read_only:
-        cmd: "agy --dangerously-skip-permissions --mode plan --model gemini-3.6-flash-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
   - id: agy-gemini-3.1-pro-high
@@ -1062,11 +1062,11 @@ agents:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --model gemini-3.1-pro-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
       read_only:
-        cmd: "agy --dangerously-skip-permissions --mode plan --model gemini-3.1-pro-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
   # gemini-3.7-flash supersedes 3.6-flash as the quick/free variant in this
@@ -1090,11 +1090,11 @@ agents:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --model gemini-3.7-flash-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.7-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
       read_only:
-        cmd: "agy --dangerously-skip-permissions --mode plan --model gemini-3.7-flash-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.7-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
   - id: agy-claude-sonnet-4-6
@@ -1112,11 +1112,11 @@ agents:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --model claude-sonnet-4-6"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
       read_only:
-        cmd: "agy --dangerously-skip-permissions --mode plan --model claude-sonnet-4-6"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
   - id: agy-claude-opus-4-6-thinking
@@ -1134,11 +1134,11 @@ agents:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --model claude-opus-4-6-thinking"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
       read_only:
-        cmd: "agy --dangerously-skip-permissions --mode plan --model claude-opus-4-6-thinking"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
   - id: agy-gpt-oss-120b-medium
@@ -1156,11 +1156,11 @@ agents:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --model gpt-oss-120b-medium"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
       read_only:
-        cmd: "agy --dangerously-skip-permissions --mode plan --model gpt-oss-120b-medium"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
 
