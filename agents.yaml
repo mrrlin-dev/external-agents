@@ -533,12 +533,20 @@ agents:
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
+  # OpenRouter retired the free tier for this slug (2026-09-09): every dispatch
+  # 404s with "This model is unavailable for free. The paid version is
+  # available now - use this slug instead: minimax/minimax-m3". Confirmed the
+  # slug is gone from /api/v1/models' free listing too, not just erroring.
+  # Replaced in the panel by openrouter-nemotron-nano-omni-free below (same
+  # reasoning/coding/multimodal role); kept here disabled rather than deleted
+  # so a future OpenRouter free re-listing of minimax-m3 is one flag away.
   - id: openrouter-minimax-m3-free
     provider: openrouter
     model: minimax/minimax-m3:free
     quota_scope: shared
     tier: strong
     tags: [reasoning, coding, multimodal, free]
+    enabled: false
     auth: "env:OPENROUTER_API_KEY"
     usage_url: "https://openrouter.ai/settings/credits"
     signup_url: "https://openrouter.ai/keys"
@@ -564,12 +572,20 @@ agents:
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
+  # OpenRouter retired the free tier for this slug (2026-09-09): every dispatch
+  # 404s with "This model is unavailable for free. The paid version is
+  # available now - use this slug instead: z-ai/glm-5.2". Confirmed the slug
+  # is gone from /api/v1/models' free listing too, not just erroring.
+  # Replaced in the panel by openrouter-nex-n2.5-pro-free below (same
+  # reasoning/coding role); kept here disabled rather than deleted so a
+  # future OpenRouter free re-listing of glm-5.2 is one flag away.
   - id: openrouter-glm-5-2-free
     provider: openrouter
     model: z-ai/glm-5.2:free
     quota_scope: shared
     tier: strong
     tags: [reasoning, coding, free]
+    enabled: false
     auth: "env:OPENROUTER_API_KEY"
     usage_url: "https://openrouter.ai/settings/credits"
     signup_url: "https://openrouter.ai/keys"
@@ -592,6 +608,74 @@ agents:
         url: "https://openrouter.ai/api/v1/chat/completions"
         env: OPENROUTER_API_KEY
         model: z-ai/glm-5.2:free
+        effort_param: nested
+        effort_levels: [none, minimal, low, medium, high, xhigh, max]
+        effort_verified: passthrough
+  # Added 2026-09-09 as a live, verified (direct chat/completions call, not
+  # just present in /models) replacement for the retired openrouter-glm-5-2-free
+  # above -- same reasoning/coding role.
+  - id: openrouter-nex-n2.5-pro-free
+    provider: openrouter
+    model: nex-agi/nex-n2.5-pro:free
+    quota_scope: shared
+    tier: strong
+    tags: [reasoning, coding, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
+    token_limits:
+      context_window: 262144
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit). Untested against a real review workload yet -- watch state.json after the first few dispatches."
+    transports:
+      edit_exists:
+        cmd: "aider --model openrouter/nex-agi/nex-n2.5-pro:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
+      generate_new:
+        url: "https://openrouter.ai/api/v1/chat/completions"
+        env: OPENROUTER_API_KEY
+        model: nex-agi/nex-n2.5-pro:free
+        effort_param: nested
+        effort_levels: [none, minimal, low, medium, high, xhigh, max]
+        effort_verified: passthrough
+  # Added 2026-09-09 as a live, verified (direct chat/completions call, not
+  # just present in /models) replacement for the retired
+  # openrouter-minimax-m3-free above -- same reasoning/coding/multimodal role.
+  - id: openrouter-nemotron-nano-omni-free
+    provider: openrouter
+    model: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+    quota_scope: shared
+    tier: strong
+    tags: [reasoning, coding, multimodal, free]
+    auth: "env:OPENROUTER_API_KEY"
+    usage_url: "https://openrouter.ai/settings/credits"
+    signup_url: "https://openrouter.ai/keys"
+    docs_url: "https://openrouter.ai/docs"
+    free_tier:
+      description: "The `:free`-suffixed models on OpenRouter are free to call with no credit card required, subject to OpenRouter's shared rate limits."
+      limits: "Free-model requests are capped per minute and per day; the cap depends on whether the account has ever purchased credits."
+      card_required: false
+    token_limits:
+      context_window: 256000
+      rpm: 20
+      note: "Same account-wide OpenRouter free-tier caps (rpd 50, or 1000 with >=$10 lifetime credit). Untested against a real review workload yet -- watch state.json after the first few dispatches."
+    transports:
+      edit_exists:
+        cmd: "aider --model openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+      read_only:
+        via: generate_new
+        verified: by_construction
+      generate_new:
+        url: "https://openrouter.ai/api/v1/chat/completions"
+        env: OPENROUTER_API_KEY
+        model: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
         effort_param: nested
         effort_levels: [none, minimal, low, medium, high, xhigh, max]
         effort_verified: passthrough
