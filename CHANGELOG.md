@@ -4,6 +4,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.61.1] - 2026-09-10
+
+### Fixed
+
+- **`dispatch` never checked the TPM ceiling it already knew.** `pick` has refused to *seat* an oversized prompt since `token_limits` landed, but `dispatch` — reachable directly by any caller naming an agent id, skipping `pick` entirely — sent the request anyway. Two live 413s on `groq-gpt-oss-120b` (2026-09-08/09) requested 17124 and 22583 tokens against an observed ceiling of 8000 that had not moved in days: the ceiling was known, nothing had consulted it. `runAny` now runs the same `effectiveTokenCeiling` check right after assembling the full prompt and refuses before dispatching, with `--allow-oversized-prompt` (CLI) / `allow_oversized_prompt` (MCP) as a deliberate opt-out.
+
 ## [0.61.0] - 2026-09-09
 
 ### Fixed
