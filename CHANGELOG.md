@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Fixed
+
+- **`agy`'s own print-timeout watchdog exiting 0 was scored as a success.** `agy --print-timeout` firing mid-turn writes `[agy] print timeout after <duration> with turn in progress; returning partial output` to stderr and exits 0 regardless of whether the turn produced anything — confirmed live against `agy` 1.2.0. When the model had streamed some visible prose before the cutoff, that non-blank stdout was enough for the existing empty-run guard to wave the run through: `agy-claude-opus-4-6-thinking` and `agy-gpt-oss-120b-medium` were each logged `outcome:"success"` after running ~486s (within seconds of the registry's `--print-timeout 8m`) with no file changed. The `failure_markers` mechanism already exists for exactly this class (see `kiro`'s "Monthly request limit reached"); the agy family's six registry entries just never declared one. All twelve `agy-*` `edit_exists`/`read_only` transports now declare `failure_markers: ["with turn in progress; returning partial output"]`, so a print-timeout with nothing to show for it is a failure — a genuine partial edit made before the cutoff is untouched, since `hasSubstantiveOutput` still wins when real files changed.
+
 ## [0.61.0] - 2026-09-09
 
 ### Fixed

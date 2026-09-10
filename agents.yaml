@@ -1109,6 +1109,17 @@ agents:
   # process still exits 0, so the dispatch trailer reports success for a
   # request the model never received. `prompt_flag: "--print"` below tells
   # runDispatch to place `--print` immediately before the real prompt instead.
+  #
+  # `failure_markers` on every entry below: agy's OWN `--print-timeout`
+  # watchdog exits 0 and writes "... with turn in progress; returning
+  # partial output" to stderr when it fires mid-turn. If the model had
+  # already streamed some visible prose, that alone reads as a real answer to
+  # the generic empty-run guard even though nothing was actually finished —
+  # confirmed live against two agy models running ~486s (the registry's
+  # `--print-timeout 8m`, plus overhead) and logged as a plain success with no
+  # file changed. The marker forces that specific shape back to a failure
+  # UNLESS real files changed first (see hasSubstantiveOutput in dispatch.js),
+  # so a genuine partial edit made before the cutoff is untouched.
   - id: agy-gemini-3.6-flash-high
     provider: antigravity
     model: gemini-3.6-flash-high
@@ -1127,10 +1138,12 @@ agents:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
       read_only:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
   - id: agy-gemini-3.1-pro-high
     provider: antigravity
     model: gemini-3.1-pro-high
@@ -1149,10 +1162,12 @@ agents:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
       read_only:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
   # gemini-3.7-flash supersedes 3.6-flash as the quick/free variant in this
   # family (added 2026-08-31, discovered live via `agy models` on a fresh
   # Antigravity login). Kept both -3.6 and -3.7 -high for now rather than
@@ -1177,10 +1192,12 @@ agents:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.7-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
       read_only:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.7-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
   - id: agy-claude-sonnet-4-6
     provider: antigravity
     model: claude-sonnet-4-6
@@ -1199,10 +1216,12 @@ agents:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
       read_only:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
   - id: agy-claude-opus-4-6-thinking
     provider: antigravity
     model: claude-opus-4-6-thinking
@@ -1221,10 +1240,12 @@ agents:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
       read_only:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
   - id: agy-gpt-oss-120b-medium
     provider: antigravity
     model: gpt-oss-120b-medium
@@ -1243,10 +1264,12 @@ agents:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
       read_only:
         cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
+        failure_markers: ["with turn in progress; returning partial output"]
 
   # ============ Primary orchestrator (subscription CLI) ============
   # These are strong-tier agentic CLIs backed by an operator subscription — not
