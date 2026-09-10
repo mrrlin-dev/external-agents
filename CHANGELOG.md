@@ -8,6 +8,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 - **`agy`'s own print-timeout watchdog exiting 0 was scored as a success.** `agy --print-timeout` firing mid-turn writes `[agy] print timeout after <duration> with turn in progress; returning partial output` to stderr and exits 0 regardless of whether the turn produced anything — confirmed live against `agy` 1.2.0. When the model had streamed some visible prose before the cutoff, that non-blank stdout was enough for the existing empty-run guard to wave the run through: `agy-claude-opus-4-6-thinking` and `agy-gpt-oss-120b-medium` were each logged `outcome:"success"` after running ~486s (within seconds of the registry's `--print-timeout 8m`) with no file changed. The `failure_markers` mechanism already exists for exactly this class (see `kiro`'s "Monthly request limit reached"); the agy family's six registry entries just never declared one. All twelve `agy-*` `edit_exists`/`read_only` transports now declare `failure_markers: ["with turn in progress; returning partial output"]`, so a print-timeout with nothing to show for it is a failure — a genuine partial edit made before the cutoff is untouched, since `hasSubstantiveOutput` still wins when real files changed.
 
+## [0.61.1] - 2026-09-10
+
+### Fixed
+
+- **`dispatch` never checked the TPM ceiling it already knew.** `pick` has refused to *seat* an oversized prompt since `token_limits` landed, but `dispatch` — reachable directly by any caller naming an agent id, skipping `pick` entirely — sent the request anyway. Two live 413s on `groq-gpt-oss-120b` (2026-09-08/09) requested 17124 and 22583 tokens against an observed ceiling of 8000 that had not moved in days: the ceiling was known, nothing had consulted it. `runAny` now runs the same `effectiveTokenCeiling` check right after assembling the full prompt and refuses before dispatching, with `--allow-oversized-prompt` (CLI) / `allow_oversized_prompt` (MCP) as a deliberate opt-out.
+
 ## [0.61.0] - 2026-09-09
 
 ### Fixed
