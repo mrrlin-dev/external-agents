@@ -1133,14 +1133,31 @@ agents:
       card_required: false
     token_limits:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
+    # How to read token usage out of agy's envelope (lib/cli-usage.js). Verified
+    # live 2026-09-10: a single JSON object (not an event array), the answer
+    # under `.response`, no cost field. Before this, every agy dispatch reported
+    # no tokens at all — the same blind spot `claude`'s usage_from closed above.
+    # A mismatch costs nothing: parseCliUsage returns null on any discrepancy
+    # and the caller keeps raw stdout as the answer.
+    #
+    # The envelope also carries `usage.thinking_tokens`, deliberately left
+    # unmapped: parseCliUsage's spec vocabulary has no slot for it today (only
+    # tokens_in/tokens_out/cost_usd/cache_read/cache_write), and adding one is a
+    # cli-usage.js code change, not a registry edit — out of scope here.
+    usage_from:
+      kind: json
+      text: response
+      tokens_in: usage.input_tokens
+      tokens_out: usage.output_tokens
+      cache_read: usage.cache_read_tokens
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.6-flash-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
       read_only:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.6-flash-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --mode plan --model gemini-3.6-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
@@ -1157,14 +1174,21 @@ agents:
       card_required: false
     token_limits:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
+    # See agy-gemini-3.6-flash-high above for why this shape is declared.
+    usage_from:
+      kind: json
+      text: response
+      tokens_in: usage.input_tokens
+      tokens_out: usage.output_tokens
+      cache_read: usage.cache_read_tokens
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.1-pro-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
       read_only:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.1-pro-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --mode plan --model gemini-3.1-pro-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
@@ -1187,14 +1211,21 @@ agents:
       card_required: false
     token_limits:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
+    # See agy-gemini-3.6-flash-high above for why this shape is declared.
+    usage_from:
+      kind: json
+      text: response
+      tokens_in: usage.input_tokens
+      tokens_out: usage.output_tokens
+      cache_read: usage.cache_read_tokens
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gemini-3.7-flash-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --model gemini-3.7-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
       read_only:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gemini-3.7-flash-high"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --mode plan --model gemini-3.7-flash-high"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
@@ -1211,14 +1242,21 @@ agents:
       card_required: false
     token_limits:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
+    # See agy-gemini-3.6-flash-high above for why this shape is declared.
+    usage_from:
+      kind: json
+      text: response
+      tokens_in: usage.input_tokens
+      tokens_out: usage.output_tokens
+      cache_read: usage.cache_read_tokens
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model claude-sonnet-4-6"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
       read_only:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model claude-sonnet-4-6"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --mode plan --model claude-sonnet-4-6"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
@@ -1235,14 +1273,21 @@ agents:
       card_required: false
     token_limits:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
+    # See agy-gemini-3.6-flash-high above for why this shape is declared.
+    usage_from:
+      kind: json
+      text: response
+      tokens_in: usage.input_tokens
+      tokens_out: usage.output_tokens
+      cache_read: usage.cache_read_tokens
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model claude-opus-4-6-thinking"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
       read_only:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model claude-opus-4-6-thinking"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --mode plan --model claude-opus-4-6-thinking"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
@@ -1259,14 +1304,21 @@ agents:
       card_required: false
     token_limits:
       note: "Antigravity account CLI -- capped by an account-wide quota window ('resets in ~Xh'), not published numeric tpm/rpm/rpd."
+    # See agy-gemini-3.6-flash-high above for why this shape is declared.
+    usage_from:
+      kind: json
+      text: response
+      tokens_in: usage.input_tokens
+      tokens_out: usage.output_tokens
+      cache_read: usage.cache_read_tokens
     transports:
       edit_exists:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --model gpt-oss-120b-medium"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
       read_only:
-        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --mode plan --model gpt-oss-120b-medium"
+        cmd: "agy --dangerously-skip-permissions --print-timeout 8m --output-format json --mode plan --model gpt-oss-120b-medium"
         cwd_flag: "--add-dir {cwd}"
         prompt_flag: "--print"
         failure_markers: ["with turn in progress; returning partial output"]
