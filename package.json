@@ -13,6 +13,7 @@
     "start": "node server.js",
     "ui": "node ui.js",
     "cli": "node cli.js",
+    "test": "node --test lib/*.test.js",
     "postinstall": "node scripts/postinstall-banner.mjs || true"
   },
   "keywords": [
