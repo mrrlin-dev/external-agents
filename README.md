@@ -340,23 +340,6 @@ Every real call updates state from the response headers and error body. Cooldown
 
 </details>
 
-<details>
-<summary><b>Is Mrrlin required?</b></summary>
-
-No. `external-agents` is standalone and works for anyone building a multi-model workflow. Mrrlin just happens to be where it was extracted from.
-
-</details>
-
----
-
-## Mrrlin uses this
-
-[Mrrlin](https://mrrlin.com) is the platform this was extracted from. Its consensus gate — run on every design and every PR diff — is a four-reviewer panel, with reviewers pulled dynamically from this exact pool each round. Free-tier members mean the gate costs essentially nothing to run on every substantial change, and cross-model diversity beats any single reviewer.
-
-You don't need Mrrlin to use the pattern. Build your own reviewer panel, self-consistency check, or jury-of-N verifier — the primitives are unopinionated.
-
-`external-agents` is one piece of [**Mrrlin**](https://mrrlin.com), an AI orchestration platform for solo developers and small teams.
-
 ## License
 
 MIT. Issues and pull requests welcome.
