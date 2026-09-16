@@ -4,6 +4,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-09-16
+
 ### Added
 
 - **`agy` dispatches now report real token usage instead of always `null`.** All twelve `agy-*` `edit_exists`/`read_only` transports now pass `--output-format json` and declare `usage_from` (`lib/cli-usage.js`'s existing structured-output interpreter already documented and tested this exact envelope shape — `{"status","response","usage":{"input_tokens","output_tokens","cache_read_tokens"}}` — but no registry entry had ever wired it up). Verified live against `agy` 1.2.0 that this composes correctly with the print-timeout `failure_markers` fix below: the JSON envelope goes to stdout and the print-timeout notice to stderr as two separate streams, so the marker still forces a failure on a non-blank stdout, and the parsed usage (zero, on that path) still comes through rather than being lost to a raw-JSON fallback.
