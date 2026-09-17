@@ -332,8 +332,12 @@ agents:
   # (`/openai/v1/models` no longer lists any chat-capable meta-llama model,
   # only the two `llama-prompt-guard-2` classifiers). The `token_limits`
   # notes here had already flagged them as missing from Groq's live
-  # rate-limits page. `groq-qwen3.6-27b` below replaces them in the weak
-  # slot; `groq-gpt-oss-20b` also remains weak-tier on the same key.
+  # rate-limits page. `groq-qwen3.6-27b`, which had replaced them in the
+  # weak slot, was itself retired by Groq on/before 2026-09-15 (confirmed
+  # via `external-agents audit --provider groq`: 404 "model not available
+  # on this account" on both configured keys while the gpt-oss siblings on
+  # the same keys stayed healthy) and removed here on 2026-09-17;
+  # `groq-gpt-oss-20b` remains weak-tier on the same key.
   - id: groq-gpt-oss-120b
     provider: groq
     model: openai/gpt-oss-120b
@@ -398,39 +402,6 @@ agents:
         model: openai/gpt-oss-20b
         effort_param: top_level
         effort_levels: [none, default, low, medium, high]
-        effort_verified: validated
-  - id: groq-qwen3.6-27b
-    provider: groq
-    model: qwen/qwen3.6-27b
-    quota_scope: shared
-    tier: weak
-    tags: [quick, fast, free]
-    auth: "env:GROQ_API_KEY"
-    preference_order: 8
-    usage_url: "https://console.groq.com/settings/usage"
-    signup_url: "https://console.groq.com/keys"
-    docs_url: "https://console.groq.com/docs"
-    free_tier:
-      description: "Groq's developer tier is free with no credit card required, built for fast inference on open models."
-      limits: "Free-tier requests are capped per minute and per day; the caps vary by model and are shown on the usage console."
-      card_required: false
-    token_limits:
-      context_window: 131072
-      tpm: 8000
-      rpd: 1000
-      note: "tpm/rpd read from the live `x-ratelimit-limit-*` response headers on 2026-08-17, not a docs page; max_completion_tokens is 16384."
-    transports:
-      edit_exists:
-        cmd: "aider --model groq/qwen/qwen3.6-27b"
-      read_only:
-        via: generate_new
-        verified: by_construction
-      generate_new:
-        url: "https://api.groq.com/openai/v1/chat/completions"
-        env: GROQ_API_KEY
-        model: qwen/qwen3.6-27b
-        effort_param: top_level
-        effort_levels: [none, default]
         effort_verified: validated
   # ============ OpenRouter — 50+ free models with :free tag ============
   # NB: OpenRouter rotates its :free catalog often — models come and go.

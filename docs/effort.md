@@ -31,7 +31,6 @@ Requesting them narrows the usable pool, so use them only when you specifically 
 | `openrouter-*` (Nemotron, MiniMax M3, GLM 5.2, Dots 3, Laguna S 2.1, North Mini Code) | none, minimal, low, medium, high, xhigh, max |
 | `gemini-*` | none, minimal, low, medium, high |
 | `groq-gpt-oss-120b`, `groq-gpt-oss-20b` | none, default, low, medium, high |
-| `groq-qwen3.6-27b` | none, default |
 | `ollama-gpt-oss-20b`, `ollama-gpt-oss-120b` | none, low, medium, high, max |
 | `deepseek-chat`, `deepseek-reasoner` | high, max (documented; `high` is DeepSeek's own default) |
 | `cursor-agent`, `opencode` | not supported |
