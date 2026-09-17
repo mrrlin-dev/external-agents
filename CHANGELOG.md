@@ -4,6 +4,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+### Removed
+
+- **`groq-qwen3.6-27b` registry entry — Groq retired the model.** `external-agents doctor` surfaced repeated `HTTP 404` dispatches against this seat starting 2026-09-15; `external-agents audit --provider groq` confirmed "model not available on this account" on both configured keys (`groq`, `groq2`) while the `gpt-oss-120b`/`gpt-oss-20b` siblings on the same keys stayed healthy — a provider-side retirement, not a key or account issue. Removed the dead entry from `agents.yaml` and its row from `docs/effort.md`; `groq-gpt-oss-20b` remains the weak-tier seat on that key.
+
 ## [0.62.0] - 2026-09-16
 
 ### Added
