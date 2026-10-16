@@ -1,9 +1,13 @@
 # @mrrlin-dev/external-agents — Multi-LLM MCP Server
 
+[![Part of Mrrlin](https://img.shields.io/badge/Part_of-Mrrlin.com-6366f1?style=for-the-badge&logo=rocket&logoColor=white)](https://mrrlin.com)
 [![Install to Claude Code](https://img.shields.io/badge/Install_to-Claude_Code-4a90e2?style=for-the-badge&logo=anthropic&logoColor=white)](#-2-minute-setup)
 [![Install to Codex](https://img.shields.io/badge/Install_to-Codex-24292f?style=for-the-badge&logo=openai&logoColor=white)](#-2-minute-setup)
 [![One-command install](https://img.shields.io/badge/curl_%7C_bash-one_command-4a8?style=for-the-badge)](#-2-minute-setup)
 [![npm](https://img.shields.io/npm/v/@mrrlin-dev/external-agents?style=for-the-badge)](https://www.npmjs.com/package/@mrrlin-dev/external-agents)
+
+> 🔮 **Part of [Mrrlin (mrrlin.com)](https://mrrlin.com)** — The autonomous workspace for developers running AI coding agents.
+> We extracted `external-agents` from Mrrlin so anyone using Claude Code, OpenAI Codex, or Cursor can leverage free-tier multi-model routing and adversarial review panels. Ships standalone under MIT.
 
 **Give your coding agent a pool of 40+ cheaper models to hand work off to. Cut your bill 10-100×.**
 
@@ -303,6 +307,20 @@ Related: `--effort <level>` controls reasoning depth where the provider supports
 
 ---
 
+## 🔮 Mrrlin uses this (and you can too)
+
+[**Mrrlin (mrrlin.com)**](https://mrrlin.com) is the autonomous engineering workspace this engine was extracted from.
+
+In Mrrlin, autonomous agents collaborate across software lifecycles under clear human oversight:
+- **🛡️ 4-Model Consensus Panels:** High-stakes architecture specs and PR diffs are reviewed by an adversarial panel: GPT + Gemini Pro alongside **two dynamic free-tier terminal reviewers from this exact pool**. Stacking free tiers keeps the incremental compute cost of cross-model verification near zero.
+- **🌿 Ephemeral Worktrees:** Coding agents run inside isolated Git worktrees (`~/.mrrlin/worktrees`), significantly reducing branch interference and file conflicts during parallel execution.
+- **⚡ Autopilot & Triage:** Background coordinators auto-triage incoming tasks, formulate execution plans, and assign the most cost-effective model tier for each step.
+- **🎚️ Multi-Tier Autonomy:** Tasks declare clear boundaries: `auto` (hands-off), `minimal_human` (sign off only on sensitive actions), or `human_only`.
+
+You don't need Mrrlin to use `external-agents` — this package is completely standalone. But if you are building multi-agent workflows or looking for a unified workspace, check out **[mrrlin.com](https://mrrlin.com)**.
+
+---
+
 ## FAQ
 
 <details>
@@ -339,6 +357,15 @@ Every real call updates state from the response headers and error body. Cooldown
 `npm i -g` symlinks `external-agents-mcp` into your global bin directory (usually `/opt/homebrew/bin` on macOS, `/usr/local/bin` on Linux), which is on your `PATH`. `claude mcp add` writes that literal string into `~/.claude.json`, and Claude Code spawns it as a child process — ordinary PATH resolution. No hosting, no daemon, no registry lookup.
 
 </details>
+
+## 🔮 About Mrrlin
+
+`external-agents` is an open-source component of [**Mrrlin**](https://mrrlin.com) — an autonomous engineering workspace designed for solo developers and small teams scaling their output with AI coding agents.
+
+- 🌐 **Website:** [mrrlin.com](https://mrrlin.com)
+- 💡 **Philosophy:** Docs-first multi-agent orchestration, consensus review gates, and verifiable code execution.
+
+---
 
 ## License
 

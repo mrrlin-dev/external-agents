@@ -4,6 +4,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) fo
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-10-16
+
+### Added
+
+- **Spotlight Mrrlin origin and ecosystem integration.** Added top badges, project origins callout, and deep links explaining how `external-agents` powers Mrrlin's multi-agent consensus review gates, isolated worktrees, and autonomy levels.
+- Direct links to [mrrlin.com](https://mrrlin.com) throughout documentation to drive awareness for developers scaling autonomous AI coding workflows.
+
 ### Removed
 
 - **`groq-qwen3.6-27b` registry entry — Groq retired the model.** `external-agents doctor` surfaced repeated `HTTP 404` dispatches against this seat starting 2026-09-15; `external-agents audit --provider groq` confirmed "model not available on this account" on both configured keys (`groq`, `groq2`) while the `gpt-oss-120b`/`gpt-oss-20b` siblings on the same keys stayed healthy — a provider-side retirement, not a key or account issue. Removed the dead entry from `agents.yaml` and its row from `docs/effort.md`; `groq-gpt-oss-20b` remains the weak-tier seat on that key.
